@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from jumia_feed_sync import config, db, ingest
+from jumia_feed_sync import bootstrap, config, db, ingest
 
 
 def _connect():
@@ -29,6 +29,16 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_bootstrap(args: argparse.Namespace) -> None:
+    conn = _connect()
+    path = args.file or config.UPLOAD_TEMPLATE_PATH
+    summary = bootstrap.harvest(conn, path)
+    print(
+        f"Scanned {summary.rows_scanned} rows: "
+        f"{summary.pairs_found} known id/label pairs, {summary.pairs_new} new to the catalog"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="jumia-feed-sync")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -38,6 +48,12 @@ def main() -> None:
     ingest_parser = subparsers.add_parser("ingest", help="Fetch the feed and stage products")
     ingest_parser.add_argument("--file", help="Parse a local feed XML file instead of fetching GOOGLE_FEED_API_ENDPOINT")
     ingest_parser.set_defaults(func=cmd_ingest)
+
+    bootstrap_parser = subparsers.add_parser(
+        "bootstrap", help="Harvest known brand/category ID-label pairs from a filled Upload_Template.xlsx"
+    )
+    bootstrap_parser.add_argument("--file", help="Path to the filled template (defaults to UPLOAD_TEMPLATE_PATH)")
+    bootstrap_parser.set_defaults(func=cmd_bootstrap)
 
     args = parser.parse_args()
     args.func(args)

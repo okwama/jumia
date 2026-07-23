@@ -14,9 +14,19 @@ CREATE TABLE products (
     feed_hash TEXT NOT NULL
 );
 
+CREATE TABLE id_label_catalog (
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('brand', 'category', 'parent_sku')),
+    jumia_id TEXT NOT NULL,
+    jumia_label TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('template', 'commission_sheet', 'manual')),
+    first_seen_at TEXT NOT NULL,
+    UNIQUE (kind, jumia_id)
+);
+
 CREATE TABLE resolutions (
     id INTEGER PRIMARY KEY,
-    kind TEXT NOT NULL CHECK (kind IN ('brand', 'category')),
+    kind TEXT NOT NULL CHECK (kind IN ('brand', 'category', 'parent_sku')),
     raw_value TEXT NOT NULL,
     jumia_id TEXT NOT NULL,
     jumia_label TEXT NOT NULL,

@@ -95,8 +95,17 @@ products        -- current staging from feed, upserted on each ingest
   brand_raw, product_type_raw, availability, condition,
   fetched_at, feed_hash
 
-resolutions     -- learned lookups, permanent
-  kind ('brand'|'category'), raw_value,
+id_label_catalog  -- known-valid (id, label) pairs harvested from filled
+                     -- templates or the commission sheet. NOT keyed by feed
+                     -- text -- this is the candidate universe fuzzy-match
+                     -- scores against, not a resolution.
+  kind ('brand'|'category'|'parent_sku'), jumia_id, jumia_label,
+  source ('template'|'commission_sheet'|'manual'), first_seen_at
+  UNIQUE(kind, jumia_id)
+
+resolutions     -- learned lookups, permanent: raw feed text -> a confirmed
+                   -- entry from id_label_catalog (or a manual one)
+  kind ('brand'|'category'|'parent_sku'), raw_value,
   jumia_id, jumia_label, confidence, confirmed_by_human, updated_at
   UNIQUE(kind, raw_value)
 
@@ -121,6 +130,8 @@ image_cache
 ```
 
 `resolutions` is the core asset — every manual category confirmation is permanent institutional knowledge. Uniqueness is `(kind, raw_value)`, not `raw_value` alone — a brand string and a category string can coincide. Every write to `resolutions` also appends to `resolutions_history`, so a bad manual pick is recoverable and auditable, not silently overwritten.
+
+`id_label_catalog` vs. `resolutions` — these solve different problems. A filled `Upload_Template.xlsx` only contains the *final* Jumia value (e.g. `1002708 - Computing/.../Inkjet Printer Ink`) — it has no record of what raw feed text produced it, so the bootstrap harvester (§7) cannot write directly into `resolutions`. It writes into `id_label_catalog` instead: "these IDs are known to be valid and in use." That catalog is what the RESOLVE stage's fuzzy tier scores candidate feed text against; a human confirming one of those candidates for a specific `raw_value` is what actually creates the `resolutions` row. `kind='parent_sku'` reuses the same two tables for ParentSKU lookups — real data shows ParentSKU isn't always derivable from the SKU string (§13 Open Decision 4), so it needs the same catalog-then-confirm flow as brand and category, not a regex.
 
 `products` is mutable staging (today's feed state); `run_products` is the immutable record of what a given run actually validated, which is what the History screen's "diff vs previous run" and per-run `rejects.csv` are built from — reading `row_issues` against live `products` would be reading someone else's run once the next ingest overwrites the staging table.
 
@@ -305,11 +316,12 @@ M0–M2 is a usable system. M3+ is the review layer.
 
 ## 13. Open Decisions
 
-1. **Brand strategy.** Every existing row uses `1045133 - Generic`. Is that deliberate policy, or do UGREEN/Epson/Brother have their own Jumia brand IDs you should be claiming? Own-brand listings rank better.
+1. **Brand strategy.** ~~Every existing row uses~~ **Confirmed against the real filled template (2026-07-23):** all 6 sample rows use `1045133 - Generic`, including UGREEN and Epson products that plausibly have their own Jumia brand IDs. Still your call, but it's now a verified current-state fact, not an assumption — own-brand listings rank better, and every product exported before this is decided inherits the choice.
 2. **Description quality.** In the feed sample, `g:description` is byte-identical to `g:title`. Jumia listings with a one-line description convert badly. Either fix the feed at source in GizmoJunction, or the system generates `short_description` bullets — which means an LLM step in the pipeline, worth scoping separately.
 3. **Name length floor.** Your feed titles run ~60 chars; template examples run ~75. Confirm Jumia's actual minimum before setting `min_length: 20`.
-4. **ParentSKU derivation.** Template rows group variants (`T6641`, `T6642` → parent `T664`). The feed has no parent concept. Rule-based prefix stripping, or manual?
-5. **Template column range.** §7 and §11 referred to different column ranges for attributes vs. full export width in earlier drafts. Confirm the real `Upload_Template.xlsx` header (letters, count, which are category-conditional) before M1 hardcodes anything — the export writer should derive column order from the parsed header (per §14's own mitigation), not a literal range.
+4. **ParentSKU derivation — resolved as "not pure prefix-stripping."** Real evidence from the template: `T6641/T6642/T6643/T6644` all correctly parent to `T664` (a simple "strip last character" rule would work here). But `BT5000M` and `BT5000Y` both parent to **`BT5000N`** — a string that isn't a substring of either SKU. A prefix-stripping rule cannot produce that; it looks like a manually assigned parent identifier tied to a "neutral" placeholder variant. **Conclusion: ParentSKU can't be purely rule-derived.** Treat it like brand/category — a `resolutions`-style lookup (`kind='parent_sku'`) that falls back to manual entry, not a regex.
+5. **Template column range — resolved.** Confirmed against the real header: `Name...Stock` = A–Q, category-conditional attributes (`battery_capacity...youtube_id`) = R–BH, images (`MainImage, Image2–8`) = BI–BP. Full width A–BP (68 columns), matching §1's "68-column XLSX template." §7 and §11 were both right, about different column ranges — no longer ambiguous, but the export writer should still derive column order from the parsed header at runtime (§14) rather than hardcoding these letters, since Jumia can change the template without notice.
+6. **Commission & shipping sheet not yet provided.** The real files dropped so far are `Upload_Template.xlsx` (used below) and an internal GizmoJunction sales workbook (`Dashboard`/`Quotation`/`Invoice`/`Receipt`/`Products`/`Sales Log`/`Raw Import` — WooCommerce export, real customer/invoice data). Neither is the ~30k-row Jumia category/commission/fee sheet described in §5/§7. The `Products` sheet in the sales workbook does have a per-SKU `Cost (KES)` column, which is the *other* half of margin math (§10's Margin screen needs both Jumia's commission % and GizmoJunction's own cost) — but §6's data model has no `cost_kes` column to receive it yet. Needs a decision: source `cost_kes` from that sheet (one-time import, keyed by SKU) and locate the actual Jumia commission sheet separately, or defer the Margin screen (M5) until both exist.
 
 ---
 
