@@ -1,0 +1,9 @@
+<ul class="mt-1 space-y-0.5">
+  {% for issue in issues %}
+  <li class="{% if issue.severity == 'block' %}text-red-600{% else %}text-amber-600{% endif %}">
+    [{{ issue.severity }}] {{ issue.rule_id }}{% if issue.field %} ({{ issue.field }}){% endif %}: {{ issue.message }}
+  </li>
+  {% else %}
+  <li class="text-gray-400">No issues.</li>
+  {% endfor %}
+</ul>

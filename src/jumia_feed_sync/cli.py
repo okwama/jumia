@@ -7,10 +7,7 @@ from jumia_feed_sync import bootstrap, config, db, ingest, pipeline
 
 
 def _connect():
-    config.ensure_db_parent()
-    conn = db.connect(config.DB_PATH)
-    db.migrate(conn)
-    return conn
+    return db.get_connection(config.DB_PATH)
 
 
 def cmd_migrate(_args: argparse.Namespace) -> None:
@@ -68,6 +65,12 @@ def cmd_export(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_serve(_args: argparse.Namespace) -> None:
+    import uvicorn
+
+    uvicorn.run("jumia_feed_sync.dashboard.app:app", host=config.DASHBOARD_HOST, port=config.DASHBOARD_PORT)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="jumia-feed-sync")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -95,6 +98,8 @@ def main() -> None:
     export_parser = subparsers.add_parser("export", help="Write the approved rows from a validation run to xlsx")
     export_parser.add_argument("--run-id", type=int, help="Run to export (defaults to the latest completed run)")
     export_parser.set_defaults(func=cmd_export)
+
+    subparsers.add_parser("serve", help="Run the dashboard (FastAPI + HTMX)").set_defaults(func=cmd_serve)
 
     args = parser.parse_args()
     args.func(args)

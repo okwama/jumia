@@ -73,7 +73,7 @@ def test_golden_end_to_end_export(tmp_path, monkeypatch):
         image, "probe_images",
         lambda conn, urls, **kw: {
             ugreen_image_url: image.ImageInfo(
-                url=ugreen_image_url, status_code=200, width=800, height=800, bytes=50000,
+                url=ugreen_image_url, status_code=200, width=800, height=800, bytes=50000, format="PNG",
                 corner_luminance=250.0, checked_at="2026-01-01T00:00:00Z",
             )
         },
@@ -143,7 +143,7 @@ def test_golden_export_blocks_on_undersized_image(monkeypatch):
         image, "probe_images",
         lambda conn, urls, **kw: {
             ugreen_image_url: image.ImageInfo(
-                url=ugreen_image_url, status_code=200, width=50, height=50, bytes=500,
+                url=ugreen_image_url, status_code=200, width=50, height=50, bytes=500, format="PNG",
                 corner_luminance=250.0, checked_at="2026-01-01T00:00:00Z",
             )
         },

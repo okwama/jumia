@@ -33,6 +33,7 @@ class ImageInfo:
     width: int | None
     height: int | None
     bytes: int | None
+    format: str | None
     corner_luminance: float | None
     checked_at: str
 
@@ -48,10 +49,10 @@ async def probe_one(client: httpx.AsyncClient, url: str) -> ImageInfo:
     try:
         head = await client.head(url, timeout=15.0, follow_redirects=True)
     except httpx.HTTPError:
-        return ImageInfo(url, None, None, None, None, None, checked_at)
+        return ImageInfo(url, None, None, None, None, None, None, checked_at)
 
     if head.status_code != 200:
-        return ImageInfo(url, head.status_code, None, None, None, None, checked_at)
+        return ImageInfo(url, head.status_code, None, None, None, None, None, checked_at)
 
     try:
         response = await client.get(url, timeout=30.0, follow_redirects=True)
@@ -59,9 +60,12 @@ async def probe_one(client: httpx.AsyncClient, url: str) -> ImageInfo:
         image = Image.open(BytesIO(response.content))
         width, height = image.size
         luminance = _corner_luminance(image)
-        return ImageInfo(url, response.status_code, width, height, len(response.content), luminance, checked_at)
+        return ImageInfo(
+            url, response.status_code, width, height, len(response.content),
+            image.format, luminance, checked_at,
+        )
     except (httpx.HTTPError, OSError):
-        return ImageInfo(url, head.status_code, None, None, None, None, checked_at)
+        return ImageInfo(url, head.status_code, None, None, None, None, None, checked_at)
 
 
 async def _probe_batch(urls: list[str], concurrency: int) -> list[ImageInfo]:
@@ -83,7 +87,7 @@ def _load_cached(conn: sqlite3.Connection, urls: list[str], max_age_hours: float
     placeholders = ",".join("?" for _ in urls)
     rows = conn.execute(
         f"""
-        SELECT url, status_code, width, height, bytes, corner_luminance, checked_at
+        SELECT url, status_code, width, height, bytes, format, corner_luminance, checked_at
         FROM image_cache WHERE url IN ({placeholders}) AND checked_at >= ?
         """,
         (*urls, cutoff),
@@ -95,13 +99,17 @@ def _store(conn: sqlite3.Connection, infos: list[ImageInfo]) -> None:
     for info in infos:
         conn.execute(
             """
-            INSERT INTO image_cache (url, status_code, width, height, bytes, corner_luminance, checked_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO image_cache (url, status_code, width, height, bytes, format, corner_luminance, checked_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(url) DO UPDATE SET
                 status_code=excluded.status_code, width=excluded.width, height=excluded.height,
-                bytes=excluded.bytes, corner_luminance=excluded.corner_luminance, checked_at=excluded.checked_at
+                bytes=excluded.bytes, format=excluded.format, corner_luminance=excluded.corner_luminance,
+                checked_at=excluded.checked_at
             """,
-            (info.url, info.status_code, info.width, info.height, info.bytes, info.corner_luminance, info.checked_at),
+            (
+                info.url, info.status_code, info.width, info.height, info.bytes,
+                info.format, info.corner_luminance, info.checked_at,
+            ),
         )
     conn.commit()
 

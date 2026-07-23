@@ -100,7 +100,7 @@ def test_run_validation_wires_image_probe_results_into_rules(conn, monkeypatch):
     _insert_product(conn, "A1", image_link=url)
 
     tiny_image = image.ImageInfo(
-        url=url, status_code=200, width=50, height=50, bytes=10,
+        url=url, status_code=200, width=50, height=50, bytes=10, format="PNG",
         corner_luminance=250.0, checked_at="2026-01-01T00:00:00Z",
     )
     monkeypatch.setattr(image, "probe_images", lambda conn, urls, **kw: {url: tiny_image})
@@ -137,6 +137,32 @@ def test_run_validation_marks_run_failed_on_exception(conn):
     assert row[1] is not None
 
 
+def test_run_ingest_and_validate_ingests_then_validates(conn, monkeypatch):
+    fixture = Path(__file__).parent / "fixtures" / "sample_feed.xml"
+    monkeypatch.setattr("jumia_feed_sync.ingest.fetch_feed", lambda url, **kw: fixture.read_bytes())
+
+    result = pipeline.run_ingest_and_validate(conn, rules_path=str(REAL_RULES_PATH))
+
+    assert result.total == 5
+    assert conn.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 5
+    status = conn.execute("SELECT status FROM validation_runs WHERE id = ?", (result.run_id,)).fetchone()[0]
+    assert status == "completed"
+
+
+def test_run_ingest_and_validate_marks_failed_on_feed_error(conn, monkeypatch):
+    def boom(url, **kw):
+        raise ConnectionError("feed endpoint unreachable")
+
+    monkeypatch.setattr("jumia_feed_sync.ingest.fetch_feed", boom)
+
+    with pytest.raises(ConnectionError):
+        pipeline.run_ingest_and_validate(conn, rules_path=str(REAL_RULES_PATH))
+
+    row = conn.execute("SELECT status, error_message FROM validation_runs ORDER BY id DESC LIMIT 1").fetchone()
+    assert row[0] == "failed"
+    assert "feed endpoint unreachable" in row[1]
+
+
 def test_run_export_raises_when_no_completed_run(conn):
     with pytest.raises(ValueError):
         pipeline.run_export(conn)
@@ -166,3 +192,51 @@ def test_run_export_only_includes_passed_and_warned_rows(tmp_path, conn, monkeyp
     wb_out = openpyxl.load_workbook(export_result.output_path)
     skus = [row[0].value for row in wb_out.active.iter_rows(min_row=2)]
     assert skus == ["A1"]
+
+
+def test_run_export_excludes_human_overridden_row(tmp_path, conn, monkeypatch):
+    _insert_resolution(conn, "brand", "UGREEN", "1118344", "Ugreen")
+    _insert_resolution(conn, "category", "Cables", "1000473", "Computing / Cables")
+    _insert_product(conn, "A1")
+
+    result = pipeline.run_validation(conn, rules_path=str(REAL_RULES_PATH))
+    assert result.passed == 1
+
+    conn.execute(
+        "UPDATE run_products SET human_override = 'excluded' WHERE run_id = ? AND sku = 'A1'", (result.run_id,)
+    )
+    conn.commit()
+
+    import openpyxl
+
+    template_path = tmp_path / "template.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.append(["SellerSKU", "Name"])
+    wb.save(template_path)
+    monkeypatch.setattr(config, "UPLOAD_TEMPLATE_PATH", str(template_path))
+
+    export_result = pipeline.run_export(conn, run_id=result.run_id, out_dir=str(tmp_path / "out"))
+    assert export_result.rows_written == 0
+
+
+def test_run_export_includes_human_approved_row(tmp_path, conn, monkeypatch):
+    _insert_product(conn, "A2", title="Too short")  # blocked by name_length
+
+    result = pipeline.run_validation(conn, rules_path=str(REAL_RULES_PATH))
+    assert result.blocked == 1
+
+    conn.execute(
+        "UPDATE run_products SET human_override = 'approved' WHERE run_id = ? AND sku = 'A2'", (result.run_id,)
+    )
+    conn.commit()
+
+    import openpyxl
+
+    template_path = tmp_path / "template.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.append(["SellerSKU", "Name"])
+    wb.save(template_path)
+    monkeypatch.setattr(config, "UPLOAD_TEMPLATE_PATH", str(template_path))
+
+    export_result = pipeline.run_export(conn, run_id=result.run_id, out_dir=str(tmp_path / "out"))
+    assert export_result.rows_written == 1

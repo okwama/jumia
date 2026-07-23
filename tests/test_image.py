@@ -126,7 +126,7 @@ def test_probe_images_cache_hit_skips_network(conn, monkeypatch):
 def test_probe_images_cache_miss_fetches_and_stores(conn, monkeypatch):
     url = "https://example.com/new.png"
     fresh = image.ImageInfo(
-        url=url, status_code=200, width=900, height=900, bytes=2000,
+        url=url, status_code=200, width=900, height=900, bytes=2000, format="PNG",
         corner_luminance=245.0, checked_at=datetime.now(timezone.utc).isoformat(),
     )
     async def fake_probe_batch(urls, concurrency):
@@ -151,7 +151,7 @@ def test_probe_images_stale_cache_is_refetched(conn, monkeypatch):
     conn.commit()
 
     fresh = image.ImageInfo(
-        url=url, status_code=200, width=900, height=900, bytes=2000,
+        url=url, status_code=200, width=900, height=900, bytes=2000, format="PNG",
         corner_luminance=245.0, checked_at=datetime.now(timezone.utc).isoformat(),
     )
 

@@ -1,0 +1,68 @@
+<div class="flex gap-2 mb-4 flex-wrap">
+  {% for chip, label in filters %}
+    <a
+      href="/review/{{ run_id }}?filter={{ chip }}"
+      hx-get="/review/{{ run_id }}/grid?filter={{ chip }}"
+      hx-target="#grid"
+      hx-swap="innerHTML"
+      hx-push-url="/review/{{ run_id }}?filter={{ chip }}"
+      class="px-3 py-1 rounded border text-sm {% if chip == active_filter %}bg-blue-600 text-white border-blue-600{% else %}bg-white{% endif %}"
+    >
+      {{ label }} ({{ counts.get(chip, 0) }})
+    </a>
+  {% endfor %}
+</div>
+
+<div class="mb-4 flex gap-2">
+  <button type="submit" name="action" value="approved" class="bg-green-600 text-white px-3 py-1 rounded text-sm">
+    Approve selected
+  </button>
+  <button type="submit" name="action" value="excluded" class="bg-red-600 text-white px-3 py-1 rounded text-sm">
+    Exclude selected
+  </button>
+</div>
+
+<div id="grid-body" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-3">
+  {% for row in rows %}
+  <div class="bg-white rounded shadow overflow-hidden text-xs">
+    <label class="block relative cursor-pointer">
+      <input type="checkbox" name="sku" value="{{ row.sku }}" class="absolute top-1 left-1 z-10 w-4 h-4">
+      {% if row.image_link %}
+        <img src="{{ row.image_link }}" loading="lazy" class="w-full h-24 object-cover bg-gray-100">
+      {% else %}
+        <div class="w-full h-24 bg-gray-200 flex items-center justify-center text-gray-400">no image</div>
+      {% endif %}
+      <span class="absolute bottom-1 right-1 px-1 rounded text-white text-[10px]
+        {% if row.status == 'blocked' %}bg-red-600{% elif row.status == 'warned' %}bg-amber-500{% else %}bg-green-600{% endif %}">
+        {{ row.status or 'unknown' }}
+      </span>
+      {% if row.human_override %}
+        <span class="absolute top-1 right-1 px-1 rounded text-white text-[10px]
+          {% if row.human_override == 'approved' %}bg-green-700{% else %}bg-gray-700{% endif %}">
+          {{ row.human_override }}
+        </span>
+      {% endif %}
+    </label>
+    <div class="p-1">
+      <p class="truncate font-medium" title="{{ row.sku }}">{{ row.sku }}</p>
+      {% if row.width %}
+        <p class="text-gray-500">{{ row.width }}&times;{{ row.height }} {{ row.format or '' }}</p>
+      {% endif %}
+      {% if row.issue_count %}
+        <button
+          type="button"
+          hx-get="/review/{{ run_id }}/detail/{{ row.sku }}"
+          hx-target="#detail-{{ loop.index0 }}"
+          hx-swap="innerHTML"
+          class="text-blue-600 underline"
+        >
+          {{ row.issue_count }} issue{{ 's' if row.issue_count != 1 else '' }}
+        </button>
+      {% endif %}
+      <div id="detail-{{ loop.index0 }}"></div>
+    </div>
+  </div>
+  {% else %}
+  <p class="col-span-full text-gray-500">No products match this filter.</p>
+  {% endfor %}
+</div>

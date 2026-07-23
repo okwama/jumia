@@ -1,7 +1,6 @@
 """Env-backed settings. See env.example for the full set of variables."""
 
 import os
-from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -16,7 +15,5 @@ IMAGE_CACHE_MAX_AGE_HOURS = float(os.environ.get("IMAGE_CACHE_MAX_AGE_HOURS", "2
 RULES_PATH = os.environ.get("RULES_PATH", "./config/rules.yaml")
 STOCK_DEFAULT = int(os.environ.get("STOCK_DEFAULT", "10"))
 IMAGE_PROBE_CONCURRENCY = int(os.environ.get("IMAGE_PROBE_CONCURRENCY", "10"))
-
-
-def ensure_db_parent() -> None:
-    Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+DASHBOARD_HOST = os.environ.get("DASHBOARD_HOST", "127.0.0.1")
+DASHBOARD_PORT = int(os.environ.get("DASHBOARD_PORT", "8000"))

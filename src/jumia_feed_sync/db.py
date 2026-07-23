@@ -28,3 +28,14 @@ def migrate(conn: sqlite3.Connection) -> None:
             (path.name,),
         )
         conn.commit()
+
+
+def get_connection(db_path: str | Path) -> sqlite3.Connection:
+    """Shared by the CLI and dashboard: ensure the parent dir exists,
+    connect, apply pending migrations. Callers own a short-lived
+    connection per request/command -- see dashboard/app.py's note on why
+    that's simpler than sharing one connection across threads."""
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    conn = connect(db_path)
+    migrate(conn)
+    return conn

@@ -96,7 +96,7 @@ def test_image_checks_fire_against_probed_cache():
     url = "https://example.com/x.png"
     image_cache = {
         url: ImageInfo(
-            url=url, status_code=404, width=200, height=200, bytes=100,
+            url=url, status_code=404, width=200, height=200, bytes=100, format="PNG",
             corner_luminance=100.0, checked_at="2026-01-01T00:00:00Z",
         )
     }
@@ -116,7 +116,7 @@ def test_image_checks_pass_against_a_conforming_probed_image():
     url = "https://example.com/x.png"
     image_cache = {
         url: ImageInfo(
-            url=url, status_code=200, width=800, height=800, bytes=5000,
+            url=url, status_code=200, width=800, height=800, bytes=5000, format="PNG",
             corner_luminance=250.0, checked_at="2026-01-01T00:00:00Z",
         )
     }

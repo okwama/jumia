@@ -1,6 +1,6 @@
 # PRD / Architecture: Jumia Feed Sync
 
-**Owner:** Benjamin · **Status:** Draft v0.6 · **Date:** 23 Jul 2026
+**Owner:** Benjamin · **Status:** Draft v0.7 · **Date:** 23 Jul 2026
 
 ---
 
@@ -62,7 +62,9 @@ You need image preview and category confirmation — both are visual judgment ca
 
 ### Run execution model
 
-INGEST→RESOLVE→VALIDATE takes long enough (feed fetch, image probing, fuzzy matching against 30k categories) that it can't run inline in a request handler. The dashboard's Run screen kicks it off as a FastAPI `BackgroundTasks` job writing progress into a `runs` row; the page polls via HTMX (`hx-trigger="every 1s"`) until the run completes. No separate queue/worker process needed at this scale — a second concurrent run is simply disallowed while one is in flight.
+INGEST→RESOLVE→VALIDATE takes long enough (feed fetch, image probing, fuzzy matching against 1,913 categories and 175,460 brands — §7) that it can't run inline in a request handler. **Implemented M3, matches this as designed:** the dashboard's Run screen creates the `validation_runs` row synchronously (so a same-instant double-click sees it immediately, no race), then hands the actual work to a FastAPI `BackgroundTasks` job; the page polls `/run/status` via HTMX (`hx-trigger="every 2s"`) until the run completes. No separate queue/worker process needed at this scale — a second concurrent run is disallowed while one is in flight (checked against `validation_runs.status = 'running'`).
+
+Launch it with `jumia-feed-sync serve`, or `start.ps1` (syncs deps, creates `.env` from the example on first run, opens the browser, then runs the server in the foreground).
 
 ---
 
@@ -119,15 +121,18 @@ validation_runs
 run_products    -- immutable snapshot of each product as validated in this run
   run_id FK, sku, title, price_kes, brand_resolved, category_resolved,
   stage ('ingested'|'resolved'|'probed'|'validated'),
-  status ('passed'|'warned'|'blocked'), feed_hash
+  status ('passed'|'warned'|'blocked'),
+  human_override ('approved'|'excluded'|NULL), feed_hash
   PRIMARY KEY (run_id, sku)
 
 row_issues
   run_id FK, sku, field, severity ('block'|'warn'), rule_id, message
 
 image_cache
-  url PK, status_code, width, height, bytes, corner_luminance, checked_at
+  url PK, status_code, width, height, bytes, format, corner_luminance, checked_at
 ```
+
+`run_products.human_override` (M3) is the Review Grid's approve/exclude action: a human can flip an automated decision -- exclude an otherwise passed/warned row (bad image content the rules can't see), or approve an otherwise blocked one (a false positive, or a rule you're choosing to override this once). `run_export` treats `excluded` as "never export this, regardless of status" and `approved` as "always export this, regardless of status" (§11).
 
 `resolutions` is the core asset — every manual category confirmation is permanent institutional knowledge. Uniqueness is `(kind, raw_value)`, not `raw_value` alone — a brand string and a category string can coincide. Every write to `resolutions` also appends to `resolutions_history`, so a bad manual pick is recoverable and auditable, not silently overwritten.
 
@@ -280,15 +285,17 @@ Cloudinary note — your URLs already support transforms (`w_800,h_800,c_pad,b_w
 
 ## 10. Dashboard Screens
 
-| Screen | Purpose |
-|---|---|
-| **Run** | Trigger fetch, live progress, summary counts (parsed / passed / warned / blocked) |
-| **Review Grid** | Image wall with filters and inline field edits |
-| **Unresolved** | Category & brand queue — fuzzy candidates with scores, one-click confirm |
-| **Rules** | YAML editor with live re-validate against last run, no restart |
-| **Mapping** | Feed field → template column editor |
-| **Margin** | Per-SKU: price, commission %, DS fee, net, flagged negatives |
-| **History** | Past runs, downloadable exports, diff vs previous run |
+| Screen | Purpose | Status |
+|---|---|---|
+| **Run** | Trigger fetch, live progress, summary counts (parsed / passed / warned / blocked) | Done (M3) |
+| **Review Grid** | Image wall with filters and bulk approve/exclude | Done (M3) -- filters are `all/blocked/warned/passed/unresolved_category/missing_image`, not literal inline field edits (deferred, see below) |
+| **Unresolved** | Category & brand queue — fuzzy candidates with scores, one-click confirm | M4 |
+| **Rules** | YAML editor with live re-validate against last run, no restart | M5 |
+| **Mapping** | Feed field → template column editor | M5 |
+| **Margin** | Per-SKU: price, commission %, DS fee, net, flagged negatives | M5 (also blocked on Open Decision 6 -- no commission sheet yet) |
+| **History** | Past runs, downloadable exports, diff vs previous run | Not milestoned yet |
+
+**M3 scope notes.** Two things called for in §9's original dashboard bullet list didn't make the cut, deliberately: inline field edits on a tile (the Review Grid shows and lets you approve/exclude, not edit `Name`/`Brand`/etc. in place -- that's a bigger UI surface, folds naturally into the Mapping/Rules editors in M5) and the **re-probe** bulk action. Re-probe turned out to matter more than expected: real verification (2026-07-23) hit a transient network failure on a HEAD request that got cached as `status_code=None` ("unreachable") for the full `image_cache.max_age_hours` (24h) -- a one-off blip now blocks that row for a day with no way to force a recheck except waiting out the TTL or manually clearing the cache row. Worth prioritizing early in whatever milestone picks this back up.
 
 **Configurability is the design constraint.** Every threshold, regex, required-attribute set, and field mapping is YAML-backed and editable in-app. Editing a rule re-validates the cached last run immediately — no re-fetch, no restart. This is what makes the system survive Jumia changing their mind.
 
@@ -311,7 +318,7 @@ Idempotency via `feed_hash` — unchanged products are skipped unless `--force`.
 | **M0** | Feed parse + SQLite staging (incl. `run_products.stage`) + bootstrap harvesters (filled template + Jumia guidelines workbook) | CLI dumps normalized products, seeds `id_label_catalog` — done: 745 products ingested, 177,373 id/label pairs harvested |
 | **M1** | Rule engine (config schema-validated, collect-all evaluation) + pydantic model + export writer + unit tests + golden-file export test | Done: `validate`/`export` CLI, 49 tests passing, verified against real staged data (58/745 real products exported cleanly once brand+category resolved) |
 | **M2** | Image probe pipeline + cache | Done: `image.py` (async, concurrency-capped, TTL-cached), wired into `validate`'s rule evaluation; verified against real Cloudinary images (correctly caught one real undersized image) |
-| **M3** | Dashboard: run + review grid + image wall + run failure state surfaced | Visual approval loop |
+| **M3** | Dashboard: run + review grid + image wall + run failure state surfaced | Done: FastAPI + Jinja2 + HTMX, `jumia-feed-sync serve` (or `start.ps1`); verified in-browser against real data including a live human-approve override changing what `export` actually wrote |
 | **M4** | Unresolved queue with fuzzy candidates + `resolutions_history` audit trail | Category resolution UX |
 | **M5** | Rules/mapping editors in-app + margin report | Full configurability |
 

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="text-xl font-bold mb-4">Review Grid{% if run_id %} &mdash; Run #{{ run_id }}{% endif %}</h1>
+
+{% if run_id is none %}
+  <p class="text-gray-500">No completed run yet. <a href="/run" class="text-blue-600 underline">Start one</a>.</p>
+{% else %}
+  <form hx-post="/review/{{ run_id }}/override" hx-target="#grid" hx-swap="innerHTML">
+    <div id="grid">
+      {% include "_grid.html" %}
+    </div>
+  </form>
+{% endif %}
+{% endblock %}

@@ -68,6 +68,7 @@ CREATE TABLE run_products (
     category_resolved TEXT,
     stage TEXT NOT NULL CHECK (stage IN ('ingested', 'resolved', 'probed', 'validated')) DEFAULT 'ingested',
     status TEXT CHECK (status IN ('passed', 'warned', 'blocked')),
+    human_override TEXT CHECK (human_override IN ('approved', 'excluded')),
     feed_hash TEXT NOT NULL,
     PRIMARY KEY (run_id, sku)
 );
@@ -88,6 +89,7 @@ CREATE TABLE image_cache (
     width INTEGER,
     height INTEGER,
     bytes INTEGER,
+    format TEXT,
     corner_luminance REAL,
     checked_at TEXT NOT NULL
 );
