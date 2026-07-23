@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:g="http://base.google.com/ns/1.0" version="2.0">
+  <channel>
+    <title>GizmoJunction Product Feed</title>
+    <link>https://www.gizmojunction.com</link>
+    <description>The best tech gadgets and electronics in Kenya.</description>
+    <item>
+      <g:id>UG-55551B</g:id>
+      <g:title>UGREEN GaN 500W Desktop Fast Charger (6-Port) UK - X759</g:title>
+      <g:description>UGREEN GaN 500W Desktop Fast Charger (6-Port) UK - X759</g:description>
+      <g:link>https://www.gizmojunction.com/product/UG-55551B</g:link>
+      <g:image_link>https://res.cloudinary.com/dyfj4bj3c/image/upload/v1778347237/isgnw2vfpae2svwdqcfj.png</g:image_link>
+      <g:condition>new</g:condition>
+      <g:availability>in stock</g:availability>
+      <g:price>32000.00 KES</g:price>
+
+      <g:brand>UGREEN</g:brand>
+      <g:product_type>Components &amp; Accessories</g:product_type>
+    </item>
+    <item>
+      <g:id>POWER CAB 3 PIN</g:id>
+      <g:title>3 Pin Power Cable</g:title>
+      <g:description>3 Pin Power Cable</g:description>
+      <g:link>https://www.gizmojunction.com/product/POWER%20CAB%203%20PIN</g:link>
+      <g:image_link>https://res.cloudinary.com/dyfj4bj3c/image/upload/v1778333801/wivundi51cps6uzgyhtm.png</g:image_link>
+      <g:condition>new</g:condition>
+      <g:availability>in stock</g:availability>
+      <g:price>400.00 KES</g:price>
+
+      <g:brand>GizmoJunction</g:brand>
+      <g:product_type>Components &amp; Accessories</g:product_type>
+    </item>
+    <item>
+      <g:id>981-000870</g:id>
+      <g:title>Logitech Zone Wired Headset with Noise-Cancelling Mic</g:title>
+      <g:description>Logitech Zone Wired Headset with Noise-Cancelling Mic</g:description>
+      <g:link>https://www.gizmojunction.com/product/981-000870</g:link>
+      <g:image_link>https://res.cloudinary.com/dyfj4bj3c/image/upload/v1784668382/fuba9i0gxpeffsgffof0.png</g:image_link>
+      <g:condition>new</g:condition>
+      <g:availability>in stock</g:availability>
+      <g:price>22400.00 KES</g:price>
+      <g:sale_price>17000.00 KES</g:sale_price>
+      <g:brand>Logitech</g:brand>
+      <g:product_type>Headset</g:product_type>
+    </item>
+    <item>
+      <g:id>SDSDXEP-064G-GN4IN</g:id>
+      <g:title>SanDisk Extreme PRO SDXC UHS-II Card - 64GB</g:title>
+      <g:description>SanDisk Extreme PRO SDXC UHS-II Card - 64GB</g:description>
+      <g:link>https://www.gizmojunction.com/product/SDSDXEP-064G-GN4IN</g:link>
+      <g:image_link>https://res.cloudinary.com/dyfj4bj3c/image/upload/v1784669739/r1e0otzdbutodc9ogooc.webp</g:image_link>
+      <g:condition>new</g:condition>
+      <g:availability>in stock</g:availability>
+      <g:price>6080.00 KES</g:price>
+
+      <g:brand>SanDisk</g:brand>
+      <g:product_type>Micro SD Cards</g:product_type>
+    </item>
+    <item>
+      <g:id>12XD005LUM</g:id>
+      <g:title>Lenovo ThinkCentre neo 50s Gen 5 SFF</g:title>
+      <g:description>Lenovo ThinkCentre neo 50s Gen 5 SFF</g:description>
+      <g:link>https://www.gizmojunction.com/product/12XD005LUM</g:link>
+      <g:image_link>https://res.cloudinary.com/dyfj4bj3c/image/upload/v1778369141/hddpljdonuviepj3jhtt.png</g:image_link>
+      <g:condition>new</g:condition>
+      <g:availability>in stock</g:availability>
+      <g:price>168000.00 KES</g:price>
+
+      <g:brand>Lenovo</g:brand>
+      <g:product_type>Desktop PCs</g:product_type>
+    </item>
+  </channel>
+</rss>
