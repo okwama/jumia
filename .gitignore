@@ -18,3 +18,7 @@ wheels/
 *.db
 *.db-wal
 *.db-shm
+
+# Real business/product data workbooks -- never version these, wherever they land
+*.xlsx
+*.xlsm
