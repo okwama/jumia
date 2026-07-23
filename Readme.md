@@ -1,6 +1,6 @@
 # PRD / Architecture: Jumia Feed Sync
 
-**Owner:** Benjamin · **Status:** Draft v0.5 · **Date:** 23 Jul 2026
+**Owner:** Benjamin · **Status:** Draft v0.6 · **Date:** 23 Jul 2026
 
 ---
 
@@ -126,7 +126,7 @@ row_issues
   run_id FK, sku, field, severity ('block'|'warn'), rule_id, message
 
 image_cache
-  url PK, status_code, width, height, bytes, checked_at
+  url PK, status_code, width, height, bytes, corner_luminance, checked_at
 ```
 
 `resolutions` is the core asset — every manual category confirmation is permanent institutional knowledge. Uniqueness is `(kind, raw_value)`, not `raw_value` alone — a brand string and a category string can coincide. Every write to `resolutions` also appends to `resolutions_history`, so a bad manual pick is recoverable and auditable, not silently overwritten.
@@ -262,7 +262,9 @@ rules:
 
 Runs async, concurrency-capped, results cached in SQLite so re-runs are instant. Cache entries expire after `image_cache.max_age_hours` (default 24h) and are re-probed on the next run — see §6 data model note on `image_cache`.
 
-Per image: HEAD for status → GET bytes if unknown → Pillow for dimensions, format, and corner-luminance sample (small corner patch average, not a single pixel — less noisy for the white-background heuristic) → cache.
+Per image: HEAD for status (skip the GET entirely if non-200 — don't pay for bytes you'll reject anyway) → GET bytes if HEAD is 200 → Pillow for dimensions and a corner-luminance sample (10×10px corner patch average, not a single pixel — less noisy for the white-background heuristic) → cache.
+
+**Real-data finding (2026-07-23, M2):** running the probe against actual GizmoJunction/Cloudinary images surfaced two things worth knowing before trusting this heuristic blindly. First, it works as intended — one real image (`UG-55551B`, 466×524) genuinely fails `image_min_dims` (needs 500×500), exactly the kind of thing this system exists to catch before Jumia does. Second, two other real images returned corner luminance near 0 (near-black) despite plausibly having intended white/transparent backgrounds — likely PNG alpha compositing to black under `.convert("L")` rather than an actual dark background. This is exactly why `image_white_bg` is `warn`, not `block` (§8): the heuristic is approximate by design, and a false positive here degrades to a dashboard flag, not a silent export block.
 
 **Dashboard image grid** is the primary review surface:
 
@@ -308,7 +310,7 @@ Idempotency via `feed_hash` — unchanged products are skipped unless `--force`.
 |---|---|---|
 | **M0** | Feed parse + SQLite staging (incl. `run_products.stage`) + bootstrap harvesters (filled template + Jumia guidelines workbook) | CLI dumps normalized products, seeds `id_label_catalog` — done: 745 products ingested, 177,373 id/label pairs harvested |
 | **M1** | Rule engine (config schema-validated, collect-all evaluation) + pydantic model + export writer + unit tests + golden-file export test | Done: `validate`/`export` CLI, 49 tests passing, verified against real staged data (58/745 real products exported cleanly once brand+category resolved) |
-| **M2** | Image probe pipeline + cache + resumable stage tracking | Dimension/reachability enforcement, resumes after mid-run failure |
+| **M2** | Image probe pipeline + cache | Done: `image.py` (async, concurrency-capped, TTL-cached), wired into `validate`'s rule evaluation; verified against real Cloudinary images (correctly caught one real undersized image) |
 | **M3** | Dashboard: run + review grid + image wall + run failure state surfaced | Visual approval loop |
 | **M4** | Unresolved queue with fuzzy candidates + `resolutions_history` audit trail | Category resolution UX |
 | **M5** | Rules/mapping editors in-app + margin report | Full configurability |
@@ -347,7 +349,7 @@ M0–M2 is a usable system. M3+ is the review layer.
 
 Non-negotiable design rules that keep the system trustworthy as it grows past a weekend project — violating any of these should be treated as a bug, not a style choice.
 
-1. **Runs are resumable, not all-or-nothing.** A run steps each SKU through `ingested → resolved → probed → validated` (`run_products.stage`, §6). If the process dies mid-run — most likely during image probing, the only network-bound, slow stage — the next invocation resumes rows from their last completed stage instead of redoing the whole pipeline. This is what makes a flaky Cloudinary response cost seconds instead of the whole run.
+1. **Runs are resumable, not all-or-nothing — implemented at the image-cache layer, not via per-row stage persistence.** `run_products.stage` (§6) documents the conceptual pipeline (`ingested → resolved → probed → validated`), but the actual resumability mechanism (implemented M2) is `image_cache`: every probe result is committed durably, keyed by URL with a TTL, independent of which validation run asked for it. If the process dies mid-run — most likely during image probing, the only network-bound, slow stage — re-running `validate` recomputes mapping and rules instantly (in-memory, no I/O) and only re-fetches images that were never cached or have expired. This was a deliberate scope cut from the original idea of resuming a specific `run_id` row-by-row: the image cache alone delivers the actual reliability goal (a flaky Cloudinary response costs seconds, not the whole run) without the added complexity of tracking partial progress within one run.
 2. **Config is schema-validated before it's used.** Rule YAML and category-attribute YAML are parsed into a pydantic model on save (Rules screen) and on load (CLI), not just exercised lazily at validation time. A malformed rule fails loudly in the editor, not silently mid-run three weeks later.
 3. **`resolutions` is append-only in spirit.** Every write also lands in `resolutions_history` (§6). "Permanent institutional knowledge" needs to survive a fat-fingered correction, not just a first-time entry.
 4. **Rule evaluation never short-circuits.** Every rule runs against every row regardless of earlier failures; `row_issues` collects the complete list. The dashboard's whole value proposition is showing a SKU's full problem list in one pass — an early `return` on first failure silently breaks that.

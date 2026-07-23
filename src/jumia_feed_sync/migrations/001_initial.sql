@@ -88,6 +88,7 @@ CREATE TABLE image_cache (
     width INTEGER,
     height INTEGER,
     bytes INTEGER,
+    corner_luminance REAL,
     checked_at TEXT NOT NULL
 );
 

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from jumia_feed_sync import config, db, pipeline
+from jumia_feed_sync import config, db, image, pipeline
 
 REAL_RULES_PATH = Path(__file__).parent.parent / "config" / "rules.yaml"
 
@@ -15,12 +15,21 @@ def conn():
     return connection
 
 
+@pytest.fixture(autouse=True)
+def no_real_image_probing(monkeypatch):
+    """These tests exercise rules/mapping/export, not the image pipeline
+    (that's test_image.py) -- stub probe_images so nothing here makes a
+    real network call. Tests that DO want image integration override
+    this via monkeypatch in the test body."""
+    monkeypatch.setattr(image, "probe_images", lambda conn, urls, **kw: {})
+
+
 def _insert_product(conn, sku, **overrides):
     base = {
         "sku": sku,
         "title": "A perfectly valid product title",
         "description": "A different description than the title",
-        "image_link": "https://example.com/x.png",
+        "image_link": None,
         "price_kes": 1500.0,
         "sale_price_kes": None,
         "brand_raw": "UGREEN",
@@ -79,6 +88,31 @@ def test_run_validation_blocks_unresolved_brand(conn):
         )
     }
     assert "brand_format" in rule_ids
+
+
+def test_run_validation_wires_image_probe_results_into_rules(conn, monkeypatch):
+    """Integration check: run_validation actually calls image.probe_images
+    and threads its result into the rule engine, so an undersized image
+    blocks the row via image_min_dims."""
+    _insert_resolution(conn, "brand", "UGREEN", "1118344", "Ugreen")
+    _insert_resolution(conn, "category", "Cables", "1000473", "Computing / Cables")
+    url = "https://example.com/tiny.png"
+    _insert_product(conn, "A1", image_link=url)
+
+    tiny_image = image.ImageInfo(
+        url=url, status_code=200, width=50, height=50, bytes=10,
+        corner_luminance=250.0, checked_at="2026-01-01T00:00:00Z",
+    )
+    monkeypatch.setattr(image, "probe_images", lambda conn, urls, **kw: {url: tiny_image})
+
+    result = pipeline.run_validation(conn, rules_path=str(REAL_RULES_PATH))
+
+    rule_ids = {
+        r[0] for r in conn.execute(
+            "SELECT rule_id FROM row_issues WHERE run_id = ? AND sku = 'A1'", (result.run_id,)
+        )
+    }
+    assert "image_min_dims" in rule_ids
 
 
 def test_run_validation_persists_row_issues(conn):

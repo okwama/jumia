@@ -13,7 +13,7 @@ from pathlib import Path
 
 import openpyxl
 
-from jumia_feed_sync import config, db, ingest, pipeline
+from jumia_feed_sync import config, db, image, ingest, pipeline
 
 FEED_FIXTURE = Path(__file__).parent / "fixtures" / "sample_feed.xml"
 REAL_RULES_PATH = Path(__file__).parent.parent / "config" / "rules.yaml"
@@ -63,10 +63,33 @@ def test_golden_end_to_end_export(tmp_path, monkeypatch):
     wb.save(template_path)
     monkeypatch.setattr(config, "UPLOAD_TEMPLATE_PATH", str(template_path))
 
+    # Real image checks are exercised here too, with a mocked probe result
+    # (no real network in tests) -- a conforming image, so it doesn't
+    # change the pass/fail counts already driven by the other rules. See
+    # test_golden_export_blocks_on_undersized_image below for the case
+    # where the image check is what flips the outcome.
+    ugreen_image_url = "https://res.cloudinary.com/dyfj4bj3c/image/upload/v1778347237/isgnw2vfpae2svwdqcfj.png"
+    monkeypatch.setattr(
+        image, "probe_images",
+        lambda conn, urls, **kw: {
+            ugreen_image_url: image.ImageInfo(
+                url=ugreen_image_url, status_code=200, width=800, height=800, bytes=50000,
+                corner_luminance=250.0, checked_at="2026-01-01T00:00:00Z",
+            )
+        },
+    )
+
     validation = pipeline.run_validation(conn, rules_path=str(REAL_RULES_PATH))
     assert validation.total == 5
     assert validation.passed == 1
     assert validation.blocked == 4
+
+    passing_row_issues = {
+        r[0] for r in conn.execute(
+            "SELECT rule_id FROM row_issues WHERE run_id = ? AND sku = 'UG-55551B'", (validation.run_id,)
+        )
+    }
+    assert not passing_row_issues & {"image_reachable", "image_min_dims", "image_white_bg"}
 
     result = pipeline.run_export(conn, run_id=validation.run_id, out_dir=str(tmp_path / "out"))
     assert result.rows_written == 1
@@ -93,3 +116,46 @@ def test_golden_end_to_end_export(tmp_path, monkeypatch):
     rejects_content = Path(result.rejects_path).read_text(encoding="utf-8")
     rejected_skus = {line.split(",")[0] for line in rejects_content.splitlines()[1:]}
     assert rejected_skus == {"POWER CAB 3 PIN", "981-000870", "SDSDXEP-064G-GN4IN", "12XD005LUM"}
+
+
+def test_golden_export_blocks_on_undersized_image(monkeypatch):
+    """Same setup as the golden test above, but the previously-passing
+    row's image now fails image_min_dims -- proving the image check is
+    actually wired into the export decision, not just present and inert."""
+    conn = sqlite3.connect(":memory:")
+    db.migrate(conn)
+
+    items = ingest.parse_feed(FEED_FIXTURE.read_bytes())
+    ingest.upsert_products(conn, items)
+    conn.execute(
+        """INSERT INTO resolutions (kind, raw_value, jumia_id, jumia_label, confirmed_by_human, updated_at)
+           VALUES ('brand', 'UGREEN', '1118344', 'Ugreen', 1, '2026-01-01T00:00:00Z')"""
+    )
+    conn.execute(
+        """INSERT INTO resolutions (kind, raw_value, jumia_id, jumia_label, confirmed_by_human, updated_at)
+           VALUES ('category', 'Components & Accessories', '1000473',
+                   'Computing / Computer Accessories / Cables & Interconnects', 1, '2026-01-01T00:00:00Z')"""
+    )
+    conn.commit()
+
+    ugreen_image_url = "https://res.cloudinary.com/dyfj4bj3c/image/upload/v1778347237/isgnw2vfpae2svwdqcfj.png"
+    monkeypatch.setattr(
+        image, "probe_images",
+        lambda conn, urls, **kw: {
+            ugreen_image_url: image.ImageInfo(
+                url=ugreen_image_url, status_code=200, width=50, height=50, bytes=500,
+                corner_luminance=250.0, checked_at="2026-01-01T00:00:00Z",
+            )
+        },
+    )
+
+    validation = pipeline.run_validation(conn, rules_path=str(REAL_RULES_PATH))
+    assert validation.passed == 0
+    assert validation.blocked == 5
+
+    rule_ids = {
+        r[0] for r in conn.execute(
+            "SELECT rule_id FROM row_issues WHERE run_id = ? AND sku = 'UG-55551B'", (validation.run_id,)
+        )
+    }
+    assert "image_min_dims" in rule_ids

@@ -15,6 +15,7 @@ DB_PATH = os.environ.get("DB_PATH", "./data/jumia_feed_sync.db")
 IMAGE_CACHE_MAX_AGE_HOURS = float(os.environ.get("IMAGE_CACHE_MAX_AGE_HOURS", "24"))
 RULES_PATH = os.environ.get("RULES_PATH", "./config/rules.yaml")
 STOCK_DEFAULT = int(os.environ.get("STOCK_DEFAULT", "10"))
+IMAGE_PROBE_CONCURRENCY = int(os.environ.get("IMAGE_PROBE_CONCURRENCY", "10"))
 
 
 def ensure_db_parent() -> None:

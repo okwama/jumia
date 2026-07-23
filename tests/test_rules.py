@@ -82,9 +82,50 @@ def test_allowed_tags():
     assert len(validate_batch([rule], [{"short_description": "<script>bad</script>"}])) == 1
 
 
-def test_deferred_image_checks_never_fire_without_image_pipeline():
+def test_image_checks_skip_when_url_never_probed():
+    """No image_cache entry (M2 pipeline never ran, or MainImage is
+    empty) skips the check rather than failing it -- same "skip on
+    missing data" semantics as every other check."""
     rule = Rule(id="image_reachable", field="MainImage", severity="block", check={"http_status": 200})
     assert validate_batch([rule], [{"MainImage": "https://example.com/x.png"}]) == []
+
+
+def test_image_checks_fire_against_probed_cache():
+    from jumia_feed_sync.image import ImageInfo
+
+    url = "https://example.com/x.png"
+    image_cache = {
+        url: ImageInfo(
+            url=url, status_code=404, width=200, height=200, bytes=100,
+            corner_luminance=100.0, checked_at="2026-01-01T00:00:00Z",
+        )
+    }
+    reachable = Rule(id="image_reachable", field="MainImage", severity="block", check={"http_status": 200})
+    dims = Rule(id="image_min_dims", field="MainImage", severity="block", check={"min_width": 500, "min_height": 500})
+    bg = Rule(id="image_white_bg", field="MainImage", severity="warn", check={"corner_luminance_gt": 240})
+
+    row = {"MainImage": url}
+    assert len(validate_batch([reachable], [row], image_cache)) == 1  # 404 != 200
+    assert len(validate_batch([dims], [row], image_cache)) == 1  # 200 < 500
+    assert len(validate_batch([bg], [row], image_cache)) == 1  # 100 not > 240
+
+
+def test_image_checks_pass_against_a_conforming_probed_image():
+    from jumia_feed_sync.image import ImageInfo
+
+    url = "https://example.com/x.png"
+    image_cache = {
+        url: ImageInfo(
+            url=url, status_code=200, width=800, height=800, bytes=5000,
+            corner_luminance=250.0, checked_at="2026-01-01T00:00:00Z",
+        )
+    }
+    rules = [
+        Rule(id="image_reachable", field="MainImage", severity="block", check={"http_status": 200}),
+        Rule(id="image_min_dims", field="MainImage", severity="block", check={"min_width": 500, "min_height": 500}),
+        Rule(id="image_white_bg", field="MainImage", severity="warn", check={"corner_luminance_gt": 240}),
+    ]
+    assert validate_batch(rules, [{"MainImage": url}], image_cache) == []
 
 
 def test_never_short_circuits_collects_all_failures_per_row():

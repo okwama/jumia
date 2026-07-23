@@ -11,7 +11,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from jumia_feed_sync import config, export, mapping
+from jumia_feed_sync import config, export, image, mapping
 from jumia_feed_sync.models import ExportRow
 from jumia_feed_sync.rules import Issue, load_rules, validate_batch
 
@@ -49,10 +49,20 @@ def _fetch_products_by_sku(conn: sqlite3.Connection, skus: list[str]) -> dict[st
 
 
 def run_validation(conn: sqlite3.Connection, rules_path: str | None = None) -> ValidationResult:
-    """Maps every staged product, runs the rule engine (never short-circuits,
-    Readme.md #15), and persists run_products + row_issues. On any
-    unhandled exception the run is marked 'failed' with the error captured,
-    not left spinning (Readme.md #15 principle 5)."""
+    """Maps every staged product, probes each MainImage (cache-first, see
+    image.py), runs the rule engine (never short-circuits, Readme.md
+    #15), and persists run_products + row_issues. On any unhandled
+    exception the run is marked 'failed' with the error captured, not
+    left spinning (Readme.md #15 principle 5).
+
+    Resumability (principle 1) lives in the image cache, not in per-run
+    stage bookkeeping here: image probing is the slow, network-bound
+    step, and it's committed to image_cache as it completes, keyed by
+    URL with a TTL -- independent of run_id. Re-running validate after a
+    crash recomputes mapping/rules instantly and only re-fetches images
+    that were never cached or have expired. run_products.stage is
+    written as 'validated' in one pass; it isn't a partial-progress log
+    within a single invocation."""
     started_at = datetime.now(timezone.utc).isoformat()
     run_id = conn.execute(
         "INSERT INTO validation_runs (started_at, status, feed_item_count) VALUES (?, 'running', 0)",
@@ -88,7 +98,10 @@ def run_validation(conn: sqlite3.Connection, rules_path: str | None = None) -> V
                 "category_resolved": mapped.get("PrimaryCategory"),
             }
 
-        issues = validate_batch(rules, batch) + structural_issues
+        image_urls = [row.get("MainImage") for row in batch]
+        image_cache = image.probe_images(conn, image_urls)
+
+        issues = validate_batch(rules, batch, image_cache) + structural_issues
         issues_by_sku: dict[str, list[Issue]] = {}
         for issue in issues:
             issues_by_sku.setdefault(issue.sku, []).append(issue)
