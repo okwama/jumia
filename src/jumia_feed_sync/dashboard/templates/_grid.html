@@ -1,4 +1,4 @@
-<div class="flex gap-2 mb-4 flex-wrap">
+<div class="tabs tabs-boxed mb-4 inline-flex flex-wrap">
   {% for chip, label in filters %}
     <a
       href="/review/{{ run_id }}?filter={{ chip }}"
@@ -6,73 +6,76 @@
       hx-target="#grid"
       hx-swap="innerHTML"
       hx-push-url="/review/{{ run_id }}?filter={{ chip }}"
-      class="px-3 py-1 rounded border text-sm {% if chip == active_filter %}bg-blue-600 text-white border-blue-600{% else %}bg-white{% endif %}"
+      class="tab {% if chip == active_filter %}tab-active{% endif %}"
     >
-      {{ label }} ({{ counts.get(chip, 0) }})
+      {{ label }}
+      <span class="badge badge-sm ml-1">{{ counts.get(chip, 0) }}</span>
     </a>
   {% endfor %}
 </div>
 
 <div class="mb-4 flex gap-2">
-  <button type="submit" name="action" value="approved" class="bg-green-600 text-white px-3 py-1 rounded text-sm">
+  <button type="submit" name="action" value="approved" class="btn btn-success btn-sm">
     Approve selected
   </button>
-  <button type="submit" name="action" value="excluded" class="bg-red-600 text-white px-3 py-1 rounded text-sm">
+  <button type="submit" name="action" value="excluded" class="btn btn-error btn-sm">
     Exclude selected
   </button>
 </div>
 
 <div id="grid-body" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-3">
   {% for row in rows %}
-  <div class="bg-white rounded shadow overflow-hidden text-xs">
+  <div class="card bg-base-100 shadow-sm text-xs">
     <label class="block relative cursor-pointer">
-      <input type="checkbox" name="sku" value="{{ row.sku }}" class="absolute top-1 left-1 z-10 w-4 h-4">
+      <input type="checkbox" name="sku" value="{{ row.sku }}" class="checkbox checkbox-sm absolute top-1 left-1 z-10 bg-base-100">
       {% if row.image_link %}
-        <img src="{{ row.image_link }}" loading="lazy" class="w-full h-24 object-cover bg-gray-100">
+        <img src="{{ row.image_link }}" loading="lazy" class="w-full h-24 object-cover bg-base-200 rounded-t-box">
       {% else %}
-        <div class="w-full h-24 bg-gray-200 flex items-center justify-center text-gray-400">no image</div>
+        <div class="w-full h-24 bg-base-200 rounded-t-box flex items-center justify-center text-base-content/40">no image</div>
       {% endif %}
-      <span class="absolute bottom-1 right-1 px-1 rounded text-white text-[10px]
-        {% if row.status == 'blocked' %}bg-red-600{% elif row.status == 'warned' %}bg-amber-500{% else %}bg-green-600{% endif %}">
+      <span class="badge badge-sm absolute bottom-1 right-1
+        {% if row.status == 'blocked' %}badge-error{% elif row.status == 'warned' %}badge-warning{% else %}badge-success{% endif %}">
         {{ row.status or 'unknown' }}
       </span>
       {% if row.human_override %}
-        <span class="absolute top-1 right-1 px-1 rounded text-white text-[10px]
-          {% if row.human_override == 'approved' %}bg-green-700{% else %}bg-gray-700{% endif %}">
+        <span class="badge badge-sm absolute top-1 right-1
+          {% if row.human_override == 'approved' %}badge-success{% else %}badge-neutral{% endif %}">
           {{ row.human_override }}
         </span>
       {% endif %}
     </label>
-    <div class="p-1">
+    <div class="card-body p-2 gap-1">
       <p class="truncate font-medium" title="{{ row.sku }}">{{ row.sku }}</p>
       {% if row.width %}
-        <p class="text-gray-500">{{ row.width }}&times;{{ row.height }} {{ row.format or '' }}</p>
+        <p class="text-base-content/60">{{ row.width }}&times;{{ row.height }} {{ row.format or '' }}</p>
       {% endif %}
-      {% if row.issue_count %}
+      <div class="flex gap-2">
+        {% if row.issue_count %}
+          <button
+            type="button"
+            hx-get="/review/{{ run_id }}/detail/{{ row.sku | urlencode }}"
+            hx-target="#detail-{{ loop.index0 }}"
+            hx-swap="innerHTML"
+            class="link link-error"
+          >
+            {{ row.issue_count }} issue{{ 's' if row.issue_count != 1 else '' }}
+          </button>
+        {% endif %}
         <button
           type="button"
-          hx-get="/review/{{ run_id }}/detail/{{ row.sku | urlencode }}"
-          hx-target="#detail-{{ loop.index0 }}"
+          hx-get="/review/{{ run_id }}/edit/{{ row.sku | urlencode }}"
+          hx-target="#edit-{{ loop.index0 }}"
           hx-swap="innerHTML"
-          class="text-blue-600 underline"
+          class="link link-neutral"
         >
-          {{ row.issue_count }} issue{{ 's' if row.issue_count != 1 else '' }}
+          edit
         </button>
-      {% endif %}
-      <button
-        type="button"
-        hx-get="/review/{{ run_id }}/edit/{{ row.sku | urlencode }}"
-        hx-target="#edit-{{ loop.index0 }}"
-        hx-swap="innerHTML"
-        class="text-gray-600 underline ml-1"
-      >
-        edit
-      </button>
+      </div>
       <div id="detail-{{ loop.index0 }}"></div>
       <div id="edit-{{ loop.index0 }}"></div>
     </div>
   </div>
   {% else %}
-  <p class="col-span-full text-gray-500">No products match this filter.</p>
+  <p class="col-span-full text-base-content/60">No products match this filter.</p>
   {% endfor %}
 </div>

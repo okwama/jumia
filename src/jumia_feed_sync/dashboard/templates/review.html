@@ -1,16 +1,16 @@
 {% extends "base.html" %}
 {% block content %}
-<h1 class="text-xl font-bold mb-4">Review Grid{% if run_id %} &mdash; Run #{{ run_id }}{% endif %}</h1>
+<h1 class="text-2xl font-bold mb-4">Review Grid{% if run_id %} &mdash; Run #{{ run_id }}{% endif %}</h1>
 
 {% if run_id is none %}
-  <p class="text-gray-500">No completed run yet. <a href="/run" class="text-blue-600 underline">Start one</a>.</p>
+  <p class="text-base-content/60">No completed run yet. <a href="/run" class="link link-primary">Start one</a>.</p>
 {% else %}
   <button
     type="button"
     hx-post="/review/{{ run_id }}/export"
     hx-target="#export-result"
     hx-swap="innerHTML"
-    class="bg-purple-600 text-white px-3 py-1 rounded text-sm mb-4"
+    class="btn btn-secondary btn-sm mb-4"
   >
     Export approved rows
   </button>

@@ -1,6 +1,6 @@
 # PRD / Architecture: Jumia Feed Sync
 
-**Owner:** Benjamin · **Status:** Draft v0.8 · **Date:** 23 Jul 2026
+**Owner:** Benjamin · **Status:** Draft v0.9 · **Date:** 23 Jul 2026
 
 ---
 
@@ -82,7 +82,7 @@ Launch it with `jumia-feed-sync serve`, or `start.ps1` (syncs deps, creates `.en
 | Fee lookup | `pandas` | 30k-row commission sheet, one-time load |
 | Image checks | `httpx` HEAD + `Pillow` | Reachability + dimensions |
 | Store | `SQLite` | Staging, resolution cache, run history |
-| Dashboard | `FastAPI` + `Jinja2` + `HTMX` + Tailwind | No SPA build step; server-rendered, fast to ship |
+| Dashboard | `FastAPI` + `Jinja2` + `HTMX` + Tailwind + DaisyUI | No SPA build step; server-rendered, fast to ship. DaisyUI (CDN, `full.min.css`) added 2026-07-23 for real components (cards, badges, tabs) instead of hand-rolled utility classes -- same no-build-step constraint, still just CDN links in `base.html` |
 | Config | YAML on disk, editable in-dashboard | Version-controllable |
 
 **Rejected:** Go (weaker xlsx tooling), Next.js dashboard (build overhead for a local tool), Postgres (SQLite is sufficient at this scale).

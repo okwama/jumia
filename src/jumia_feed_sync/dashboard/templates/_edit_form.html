@@ -1,6 +1,6 @@
-<form hx-post="/review/{{ run_id }}/edit/{{ sku | urlencode }}" hx-target="this" hx-swap="outerHTML" class="mt-2 space-y-1 bg-gray-50 p-2 rounded border">
-  <input type="text" name="Name" value="{{ current.Name }}" placeholder="Name" class="w-full border rounded px-1 py-0.5 text-xs">
-  <textarea name="Description" placeholder="Description" rows="2" class="w-full border rounded px-1 py-0.5 text-xs">{{ current.Description }}</textarea>
-  <input type="text" name="MainImage" value="{{ current.MainImage }}" placeholder="Image URL" class="w-full border rounded px-1 py-0.5 text-xs">
-  <button type="submit" class="bg-blue-600 text-white px-2 py-0.5 rounded text-xs">Save</button>
+<form hx-post="/review/{{ run_id }}/edit/{{ sku | urlencode }}" hx-target="this" hx-swap="outerHTML" class="mt-2 space-y-1 bg-base-200 p-2 rounded-box">
+  <input type="text" name="Name" value="{{ current.Name }}" placeholder="Name" class="input input-bordered input-xs w-full">
+  <textarea name="Description" placeholder="Description" rows="2" class="textarea textarea-bordered textarea-xs w-full">{{ current.Description }}</textarea>
+  <input type="text" name="MainImage" value="{{ current.MainImage }}" placeholder="Image URL" class="input input-bordered input-xs w-full">
+  <button type="submit" class="btn btn-primary btn-xs">Save</button>
 </form>

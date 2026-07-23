@@ -1,28 +1,39 @@
-<div class="bg-white rounded shadow p-4 max-w-xl">
-  {% if run %}
-    <p>Run #{{ run.id }} &mdash; <span class="font-semibold">{{ run.status }}</span></p>
-    <p class="text-sm text-gray-500">
-      Started {{ run.started_at }}{% if run.finished_at %}, finished {{ run.finished_at }}{% endif %}
-    </p>
-    {% if run.status == 'completed' %}
-      <p class="mt-2">{{ run.feed_item_count }} products &mdash; {{ run.passed }} passed/warned, {{ run.failed }} blocked</p>
-      <a href="/review/{{ run.id }}" class="text-blue-600 underline">Open review grid &rarr;</a>
-    {% elif run.status == 'failed' %}
-      <p class="mt-2 text-red-600">Error: {{ run.error_message }}</p>
-    {% elif run.status == 'running' %}
-      <p class="mt-2 text-amber-600">In progress&hellip;</p>
+<div class="card bg-base-100 shadow-xl max-w-xl">
+  <div class="card-body">
+    {% if run %}
+      <div class="flex items-center gap-2">
+        <span class="font-semibold">Run #{{ run.id }}</span>
+        <span class="badge
+          {% if run.status == 'completed' %}badge-success
+          {% elif run.status == 'failed' %}badge-error
+          {% else %}badge-warning{% endif %}">
+          {% if run.status == 'running' %}<span class="loading loading-spinner loading-xs mr-1"></span>{% endif %}
+          {{ run.status }}
+        </span>
+      </div>
+      <p class="text-sm text-base-content/60">
+        Started {{ run.started_at }}{% if run.finished_at %}, finished {{ run.finished_at }}{% endif %}
+      </p>
+      {% if run.status == 'completed' %}
+        <p class="mt-2">{{ run.feed_item_count }} products &mdash; {{ run.passed }} passed/warned, {{ run.failed }} blocked</p>
+        <a href="/review/{{ run.id }}" class="link link-primary">Open review grid &rarr;</a>
+      {% elif run.status == 'failed' %}
+        <div class="alert alert-error mt-2 text-sm">Error: {{ run.error_message }}</div>
+      {% elif run.status == 'running' %}
+        <p class="mt-2 text-warning">In progress&hellip;</p>
+      {% endif %}
+    {% else %}
+      <p class="text-base-content/60">No runs yet.</p>
     {% endif %}
-  {% else %}
-    <p class="text-gray-500">No runs yet.</p>
-  {% endif %}
 
-  <form hx-post="/run/start" hx-target="#run-status" hx-swap="innerHTML" class="mt-4">
-    <button
-      type="submit"
-      class="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50"
-      {% if run and run.status == 'running' %}disabled{% endif %}
-    >
-      Start Run
-    </button>
-  </form>
+    <form hx-post="/run/start" hx-target="#run-status" hx-swap="innerHTML" class="card-actions mt-4">
+      <button
+        type="submit"
+        class="btn btn-primary"
+        {% if run and run.status == 'running' %}disabled{% endif %}
+      >
+        Start Run
+      </button>
+    </form>
+  </div>
 </div>
