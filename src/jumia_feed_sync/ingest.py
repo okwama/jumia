@@ -22,6 +22,7 @@ class FeedItem:
     description: str
     image_link: str
     price_kes: float
+    sale_price_kes: float | None
     brand_raw: str
     product_type_raw: str
     availability: str
@@ -67,6 +68,8 @@ def parse_feed(xml_bytes: bytes) -> list[FeedItem]:
         description = _text(item, "description")
         image_link = _text(item, "image_link")
         price_kes = _parse_price(_text(item, "price"))
+        sale_price_raw = _text(item, "sale_price")
+        sale_price_kes = _parse_price(sale_price_raw) if sale_price_raw else None
         brand_raw = _text(item, "brand")
         product_type_raw = _text(item, "product_type")
         availability = _text(item, "availability")
@@ -79,12 +82,13 @@ def parse_feed(xml_bytes: bytes) -> list[FeedItem]:
                 description=description,
                 image_link=image_link,
                 price_kes=price_kes,
+                sale_price_kes=sale_price_kes,
                 brand_raw=brand_raw,
                 product_type_raw=product_type_raw,
                 availability=availability,
                 condition=condition,
                 feed_hash=_feed_hash(
-                    title, description, image_link, str(price_kes),
+                    title, description, image_link, str(price_kes), str(sale_price_kes),
                     brand_raw, product_type_raw, availability, condition,
                 ),
             )
@@ -108,19 +112,20 @@ def upsert_products(conn: sqlite3.Connection, items: list[FeedItem]) -> IngestSu
 
         conn.execute(
             """
-            INSERT INTO products (sku, title, description, image_link, price_kes,
+            INSERT INTO products (sku, title, description, image_link, price_kes, sale_price_kes,
                                    brand_raw, product_type_raw, availability, condition,
                                    fetched_at, feed_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(sku) DO UPDATE SET
                 title=excluded.title, description=excluded.description,
                 image_link=excluded.image_link, price_kes=excluded.price_kes,
+                sale_price_kes=excluded.sale_price_kes,
                 brand_raw=excluded.brand_raw, product_type_raw=excluded.product_type_raw,
                 availability=excluded.availability, condition=excluded.condition,
                 fetched_at=excluded.fetched_at, feed_hash=excluded.feed_hash
             """,
             (
-                item.sku, item.title, item.description, item.image_link, item.price_kes,
+                item.sku, item.title, item.description, item.image_link, item.price_kes, item.sale_price_kes,
                 item.brand_raw, item.product_type_raw, item.availability, item.condition,
                 fetched_at, item.feed_hash,
             ),

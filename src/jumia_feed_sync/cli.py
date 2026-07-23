@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from jumia_feed_sync import bootstrap, config, db, ingest
+from jumia_feed_sync import bootstrap, config, db, ingest, pipeline
 
 
 def _connect():
@@ -49,6 +49,25 @@ def cmd_bootstrap_guidelines(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_validate(_args: argparse.Namespace) -> None:
+    conn = _connect()
+    result = pipeline.run_validation(conn)
+    print(f"Run {result.run_id}: {result.total} products validated -- {result.passed} passed/warned, {result.blocked} blocked")
+
+
+def cmd_export(args: argparse.Namespace) -> None:
+    conn = _connect()
+    try:
+        result = pipeline.run_export(conn, run_id=args.run_id)
+    except ValueError as exc:
+        print(exc)
+        return
+    print(
+        f"Exported {result.rows_written} rows to {result.output_path}; "
+        f"{result.rows_rejected} blocked rows logged to {result.rejects_path}"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="jumia-feed-sync")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -70,6 +89,12 @@ def main() -> None:
     )
     guidelines_parser.add_argument("--file", help="Path to the guidelines workbook (defaults to JUMIA_GUIDELINES_PATH)")
     guidelines_parser.set_defaults(func=cmd_bootstrap_guidelines)
+
+    subparsers.add_parser("validate", help="Map + run rules against staged products").set_defaults(func=cmd_validate)
+
+    export_parser = subparsers.add_parser("export", help="Write the approved rows from a validation run to xlsx")
+    export_parser.add_argument("--run-id", type=int, help="Run to export (defaults to the latest completed run)")
+    export_parser.set_defaults(func=cmd_export)
 
     args = parser.parse_args()
     args.func(args)

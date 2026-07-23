@@ -32,18 +32,19 @@ rules:
 
   - id: sale_price_lower
     severity: block
-    check: {expr: "Sale_Price_KES is null or Sale_Price_KES < Price_KES"}
+    check: {expr: "Sale_Price_KES is None or Sale_Price_KES < Price_KES"}
 
   - id: brand_format
     field: Brand
     severity: block
-    check: {matches: '^\d+ - .+$'}
-    message: "Brand must be 'ID - Name' e.g. '1045133 - Generic'"
+    check: {not_empty: true, matches: '^\d+ - .+$'}
+    message: "Brand must be 'ID - Name' e.g. '1045133 - Generic' -- also fails on an unresolved brand"
 
   - id: category_format
     field: PrimaryCategory
     severity: block
-    check: {matches: '^\d+ - .+$'}
+    check: {not_empty: true, matches: '^\d+ - .+$'}
+    message: "PrimaryCategory must be 'ID - Path' -- also fails on an unresolved category"
 
   - id: image_reachable
     field: MainImage

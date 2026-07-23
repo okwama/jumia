@@ -91,7 +91,7 @@ INGEST→RESOLVE→VALIDATE takes long enough (feed fetch, image probing, fuzzy 
 
 ```sql
 products        -- current staging from feed, upserted on each ingest
-  sku PK, title, description, image_link, price_kes,
+  sku PK, title, description, image_link, price_kes, sale_price_kes,
   brand_raw, product_type_raw, availability, condition,
   fetched_at, feed_hash
 
@@ -206,18 +206,19 @@ rules:
 
   - id: sale_price_lower
     severity: block
-    check: {expr: "Sale_Price_KES is null or Sale_Price_KES < Price_KES"}
+    check: {expr: "Sale_Price_KES is None or Sale_Price_KES < Price_KES"}
 
   - id: brand_format
     field: Brand
     severity: block
-    check: {matches: '^\d+ - .+$'}
-    message: "Brand must be 'ID - Name' e.g. '1045133 - Generic'"
+    check: {not_empty: true, matches: '^\d+ - .+$'}
+    message: "Brand must be 'ID - Name' e.g. '1045133 - Generic' -- also fails on an unresolved brand"
 
   - id: category_format
     field: PrimaryCategory
     severity: block
-    check: {matches: '^\d+ - .+$'}
+    check: {not_empty: true, matches: '^\d+ - .+$'}
+    message: "PrimaryCategory must be 'ID - Path' -- also fails on an unresolved category"
 
   - id: image_reachable
     field: MainImage
@@ -252,6 +253,8 @@ rules:
 ```
 
 **Severity semantics:** `block` → row excluded from export, lands in `rejects.csv`. `warn` → exported but flagged amber in dashboard.
+
+**`expr` syntax is Python, not SQL** — evaluated via `simpleeval` (§5, §15) with row field names bound as variables. Use `is None` / `is not None`, not SQL's `is null`.
 
 ---
 

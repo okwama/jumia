@@ -28,6 +28,12 @@ def test_parse_feed_strips_currency_suffix():
     assert items["UG-55551B"].price_kes == 32000.00
 
 
+def test_parse_feed_captures_optional_sale_price():
+    items = {i.sku: i for i in ingest.parse_feed(FIXTURE.read_bytes())}
+    assert items["981-000870"].sale_price_kes == 17000.00
+    assert items["UG-55551B"].sale_price_kes is None
+
+
 def test_parse_feed_handles_sku_with_spaces():
     items = {i.sku: i for i in ingest.parse_feed(FIXTURE.read_bytes())}
     assert items["POWER CAB 3 PIN"].title == "3 Pin Power Cable"

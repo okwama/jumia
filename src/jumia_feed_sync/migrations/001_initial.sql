@@ -6,6 +6,7 @@ CREATE TABLE products (
     description TEXT,
     image_link TEXT,
     price_kes REAL,
+    sale_price_kes REAL,
     brand_raw TEXT,
     product_type_raw TEXT,
     availability TEXT,
