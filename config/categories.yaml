@@ -1,0 +1,16 @@
+# Category-driven required/optional attributes. See Readme.md #7.
+# Column letters intentionally not referenced here -- the export writer
+# derives column order from the parsed template header (Readme.md #13
+# Open Decision 5, #14).
+#
+# Populate real entries via the bootstrap harvester (M0) against a filled
+# Upload_Template.xlsx. The two below are illustrative placeholders only.
+
+categories:
+  "1002708":
+    label: "Computing / ... / Inkjet Printer Ink"
+    required_attrs: [color, color_family, product_weight]
+    optional_attrs: [package_content, model]
+  "1002000":
+    label: "Computing / ... / Laptops"
+    required_attrs: [processor_type, system_memory, hdd_size, display_size]

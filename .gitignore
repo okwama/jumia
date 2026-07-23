@@ -1,0 +1,20 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local secrets
+.env
+
+# Runtime data (paths from env.example) and pipeline output
+/data/
+/out/
+*.db
+*.db-wal
+*.db-shm

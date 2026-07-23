@@ -1,0 +1,77 @@
+# Rule config. See Readme.md #8 (Rule Engine). Validated against a pydantic
+# schema on load/save (Readme.md #15) -- a malformed rule must fail loudly
+# here, not mid-run.
+
+rules:
+  - id: sku_required
+    field: SellerSKU
+    severity: block
+    check: {not_empty: true, max_length: 50}
+
+  - id: sku_unique
+    field: SellerSKU
+    severity: block
+    check: {unique_in_batch: true}
+
+  - id: name_length
+    field: Name
+    severity: block
+    check: {min_length: 20, max_length: 255}
+
+  - id: name_no_promo
+    field: Name
+    severity: block
+    check:
+      not_matches: '(?i)\b(best|cheap|sale|free shipping|!!!)\b'
+    message: "Jumia rejects promotional language in product names"
+
+  - id: price_positive
+    field: Price_KES
+    severity: block
+    check: {gt: 0}
+
+  - id: sale_price_lower
+    severity: block
+    check: {expr: "Sale_Price_KES is null or Sale_Price_KES < Price_KES"}
+
+  - id: brand_format
+    field: Brand
+    severity: block
+    check: {matches: '^\d+ - .+$'}
+    message: "Brand must be 'ID - Name' e.g. '1045133 - Generic'"
+
+  - id: category_format
+    field: PrimaryCategory
+    severity: block
+    check: {matches: '^\d+ - .+$'}
+
+  - id: image_reachable
+    field: MainImage
+    severity: block
+    check: {http_status: 200}
+
+  - id: image_min_dims
+    field: MainImage
+    severity: block
+    check: {min_width: 500, min_height: 500}
+
+  - id: image_white_bg
+    field: MainImage
+    severity: warn
+    check: {corner_luminance_gt: 240}
+    message: "Jumia prefers white background on main image"
+
+  - id: desc_not_title
+    severity: warn
+    check: {expr: "Description != Name"}
+    message: "Description duplicates title — poor listing quality"
+
+  - id: short_desc_html
+    field: short_description
+    severity: warn
+    check: {allowed_tags: [ul, li, p, br, strong]}
+
+  - id: stock_int
+    field: Stock
+    severity: block
+    check: {integer: true, gte: 0}
