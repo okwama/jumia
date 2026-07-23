@@ -1,6 +1,6 @@
 # PRD / Architecture: Jumia Feed Sync
 
-**Owner:** Benjamin · **Status:** Draft v0.4 · **Date:** 23 Jul 2026
+**Owner:** Benjamin · **Status:** Draft v0.5 · **Date:** 23 Jul 2026
 
 ---
 
@@ -307,7 +307,7 @@ Idempotency via `feed_hash` — unchanged products are skipped unless `--force`.
 | M | Scope | Output |
 |---|---|---|
 | **M0** | Feed parse + SQLite staging (incl. `run_products.stage`) + bootstrap harvesters (filled template + Jumia guidelines workbook) | CLI dumps normalized products, seeds `id_label_catalog` — done: 745 products ingested, 177,373 id/label pairs harvested |
-| **M1** | Rule engine (config schema-validated, collect-all evaluation) + pydantic model + export writer + unit tests + golden-file export test | Working CLI end-to-end, no UI |
+| **M1** | Rule engine (config schema-validated, collect-all evaluation) + pydantic model + export writer + unit tests + golden-file export test | Done: `validate`/`export` CLI, 49 tests passing, verified against real staged data (58/745 real products exported cleanly once brand+category resolved) |
 | **M2** | Image probe pipeline + cache + resumable stage tracking | Dimension/reachability enforcement, resumes after mid-run failure |
 | **M3** | Dashboard: run + review grid + image wall + run failure state surfaced | Visual approval loop |
 | **M4** | Unresolved queue with fuzzy candidates + `resolutions_history` audit trail | Category resolution UX |
