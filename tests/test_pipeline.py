@@ -184,12 +184,14 @@ def test_run_export_only_includes_passed_and_warned_rows(tmp_path, conn, monkeyp
     wb.save(template_path)
 
     monkeypatch.setattr(config, "UPLOAD_TEMPLATE_PATH", str(template_path))
-    export_result = pipeline.run_export(conn, run_id=result.run_id, out_dir=str(tmp_path / "out"))
+    results = pipeline.run_export(conn, run_id=result.run_id, out_dir=str(tmp_path / "out"))
 
-    assert export_result.rows_written == 1
-    assert export_result.rows_rejected == 1
+    assert len(results) == 1
+    assert results[0].category == "1000473"
+    assert results[0].rows_written == 1
+    assert results[0].rows_rejected == 1
 
-    wb_out = openpyxl.load_workbook(export_result.output_path)
+    wb_out = openpyxl.load_workbook(results[0].output_path)
     skus = [row[0].value for row in wb_out.active.iter_rows(min_row=2)]
     assert skus == ["A1"]
 
@@ -215,8 +217,8 @@ def test_run_export_excludes_human_overridden_row(tmp_path, conn, monkeypatch):
     wb.save(template_path)
     monkeypatch.setattr(config, "UPLOAD_TEMPLATE_PATH", str(template_path))
 
-    export_result = pipeline.run_export(conn, run_id=result.run_id, out_dir=str(tmp_path / "out"))
-    assert export_result.rows_written == 0
+    results = pipeline.run_export(conn, run_id=result.run_id, out_dir=str(tmp_path / "out"))
+    assert results == []
 
 
 def test_run_export_includes_human_approved_row(tmp_path, conn, monkeypatch):
@@ -238,5 +240,38 @@ def test_run_export_includes_human_approved_row(tmp_path, conn, monkeypatch):
     wb.save(template_path)
     monkeypatch.setattr(config, "UPLOAD_TEMPLATE_PATH", str(template_path))
 
-    export_result = pipeline.run_export(conn, run_id=result.run_id, out_dir=str(tmp_path / "out"))
-    assert export_result.rows_written == 1
+    results = pipeline.run_export(conn, run_id=result.run_id, out_dir=str(tmp_path / "out"))
+    # A2's brand/category were never resolved -- approved anyway via override,
+    # so it lands in the uncategorized bucket rather than a real category file.
+    assert len(results) == 1
+    assert results[0].category == "uncategorized"
+    assert results[0].rows_written == 1
+
+
+def test_run_export_splits_rows_by_category_into_separate_files(tmp_path, conn, monkeypatch):
+    _insert_resolution(conn, "brand", "UGREEN", "1118344", "Ugreen")
+    _insert_resolution(conn, "category", "Cables", "1000473", "Computing / Cables")
+    _insert_resolution(conn, "category", "Printers", "1002708", "Computing / Printer Ink")
+    _insert_product(conn, "A1", product_type_raw="Cables")
+    _insert_product(conn, "A2", product_type_raw="Printers")
+
+    result = pipeline.run_validation(conn, rules_path=str(REAL_RULES_PATH))
+    assert result.passed == 2
+
+    import openpyxl
+
+    template_path = tmp_path / "template.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.append(["SellerSKU", "Name", "Brand", "PrimaryCategory", "Price_KES", "Stock"])
+    wb.save(template_path)
+    monkeypatch.setattr(config, "UPLOAD_TEMPLATE_PATH", str(template_path))
+
+    results = pipeline.run_export(conn, run_id=result.run_id, out_dir=str(tmp_path / "out"))
+
+    categories = {r.category: r for r in results}
+    assert set(categories) == {"1000473", "1002708"}
+    for r in results:
+        assert r.rows_written == 1
+        wb_out = openpyxl.load_workbook(r.output_path)
+        skus = [row[0].value for row in wb_out.active.iter_rows(min_row=2)]
+        assert len(skus) == 1  # each file has only its own category's row

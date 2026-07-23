@@ -1,0 +1,12 @@
+{% for s in suggestions %}
+<button
+  type="button"
+  class="suggestion-chip px-2 py-1 rounded border hover:bg-blue-50 text-left"
+  data-jumia-id="{{ s.jumia_id }}"
+  data-jumia-label="{{ s.jumia_label }}"
+>
+  {{ s.jumia_id }} - {{ s.jumia_label }} <span class="text-gray-400">({{ "%.0f"|format(s.score) }}%)</span>
+</button>
+{% else %}
+<span class="text-gray-400">No suggestions.</span>
+{% endfor %}

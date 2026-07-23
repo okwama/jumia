@@ -61,6 +61,15 @@ def _insert_resolution(conn, kind, raw_value, jumia_id, jumia_label):
     conn.commit()
 
 
+def _insert_catalog(conn, kind, jumia_id, jumia_label):
+    conn.execute(
+        """INSERT INTO id_label_catalog (kind, jumia_id, jumia_label, source, first_seen_at)
+           VALUES (?, ?, ?, 'jumia_reference', '2026-01-01T00:00:00Z')""",
+        (kind, jumia_id, jumia_label),
+    )
+    conn.commit()
+
+
 def _seed_completed_run(db_path) -> int:
     conn = db.get_connection(str(db_path))
     _insert_resolution(conn, "brand", "UGREEN", "1118344", "Ugreen")
@@ -168,3 +177,119 @@ def test_review_override_approves_selected_sku(client, isolated_db):
     ).fetchone()[0]
     conn.close()
     assert override == "approved"
+
+
+def test_review_detail_handles_sku_with_spaces(client, isolated_db):
+    conn = db.get_connection(str(isolated_db))
+    _insert_product(conn, "POWER CAB 3 PIN", title="Too short")
+    result = pipeline.run_validation(conn, rules_path=str(REAL_RULES_PATH))
+    conn.close()
+
+    response = client.get(f"/review/{result.run_id}/detail/POWER CAB 3 PIN")
+    assert response.status_code == 200
+    assert "name_length" in response.text
+
+
+def test_unresolved_page_lists_grouped_raw_values(client, isolated_db):
+    conn = db.get_connection(str(isolated_db))
+    _insert_product(conn, "A1", brand_raw="UGREEN")
+    _insert_product(conn, "A2", brand_raw="UGREEN")
+    conn.close()
+
+    response = client.get("/unresolved?kind=brand")
+    assert response.status_code == 200
+    assert "UGREEN" in response.text
+    assert "2 products" in response.text
+
+
+def test_unresolved_page_excludes_resolved_values(client, isolated_db):
+    conn = db.get_connection(str(isolated_db))
+    _insert_product(conn, "A1", brand_raw="UGREEN")
+    _insert_resolution(conn, "brand", "UGREEN", "1118344", "Ugreen")
+    conn.close()
+
+    response = client.get("/unresolved?kind=brand")
+    assert "UGREEN" not in response.text
+
+
+def test_unresolved_suggestions_returns_ranked_matches(client, isolated_db):
+    conn = db.get_connection(str(isolated_db))
+    _insert_catalog(conn, "brand", "1118344", "Ugreen")
+    conn.close()
+
+    response = client.get("/unresolved/suggestions?kind=brand&raw_value=UGREEN")
+    assert response.status_code == 200
+    assert "1118344" in response.text
+    assert "Ugreen" in response.text
+
+
+def test_unresolved_resolve_confirms_and_persists(client, isolated_db):
+    response = client.post(
+        "/unresolved/resolve", data={"kind": "brand", "raw_value": "UGREEN", "jumia_id": "1118344", "jumia_label": "Ugreen"}
+    )
+    assert response.status_code == 200
+    assert "Resolved" in response.text
+
+    conn = db.get_connection(str(isolated_db))
+    row = conn.execute("SELECT jumia_id FROM resolutions WHERE kind='brand' AND raw_value='UGREEN'").fetchone()
+    history_count = conn.execute("SELECT COUNT(*) FROM resolutions_history WHERE raw_value='UGREEN'").fetchone()[0]
+    conn.close()
+    assert row == ("1118344",)
+    assert history_count == 1
+
+
+def test_review_edit_form_shows_current_values(client, isolated_db):
+    run_id = _seed_completed_run(isolated_db)
+    response = client.get(f"/review/{run_id}/edit/A1")
+    assert response.status_code == 200
+    assert "A perfectly valid product title" in response.text
+
+
+def test_review_edit_save_persists_override(client, isolated_db):
+    run_id = _seed_completed_run(isolated_db)
+    response = client.post(f"/review/{run_id}/edit/A1", data={"Name": "Corrected Name", "Description": "", "MainImage": ""})
+    assert response.status_code == 200
+    assert "Saved" in response.text
+
+    conn = db.get_connection(str(isolated_db))
+    value = conn.execute("SELECT value FROM field_overrides WHERE sku='A1' AND field='Name'").fetchone()[0]
+    conn.close()
+    assert value == "Corrected Name"
+
+
+def test_review_edit_save_empty_value_clears_override(client, isolated_db):
+    run_id = _seed_completed_run(isolated_db)
+    client.post(f"/review/{run_id}/edit/A1", data={"Name": "Corrected Name", "Description": "", "MainImage": ""})
+    client.post(f"/review/{run_id}/edit/A1", data={"Name": "", "Description": "", "MainImage": ""})
+
+    conn = db.get_connection(str(isolated_db))
+    row = conn.execute("SELECT value FROM field_overrides WHERE sku='A1' AND field='Name'").fetchone()
+    conn.close()
+    assert row is None
+
+
+def test_review_export_writes_per_category_files(client, isolated_db, tmp_path, monkeypatch):
+    import openpyxl
+
+    template_path = tmp_path / "template.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.append(["SellerSKU", "Name", "Brand", "PrimaryCategory", "Price_KES", "Stock"])
+    wb.save(template_path)
+    monkeypatch.setattr(config, "UPLOAD_TEMPLATE_PATH", str(template_path))
+
+    run_id = _seed_completed_run(isolated_db)
+    response = client.post(f"/review/{run_id}/export")
+    assert response.status_code == 200
+    assert "Category 1000473" in response.text
+    assert "Exported 1 file" in response.text
+
+
+def test_review_export_with_no_approved_rows(client, isolated_db):
+    conn = db.get_connection(str(isolated_db))
+    _insert_product(conn, "A2", title="Too short")
+    result = pipeline.run_validation(conn, rules_path=str(REAL_RULES_PATH))
+    conn.close()
+
+    response = client.post(f"/review/{result.run_id}/export")
+    assert response.status_code == 200
+    assert "No approved rows to export" in response.text

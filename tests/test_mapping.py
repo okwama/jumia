@@ -46,3 +46,23 @@ def test_stock_default_when_in_stock(monkeypatch):
 def test_stock_zero_when_not_in_stock():
     row = map_product(_product(availability="out of stock"), resolutions={})
     assert row["Stock"] == 0
+
+
+def test_field_override_replaces_ingested_value():
+    overrides = {("UG-1", "Name"): "Corrected Name", ("UG-1", "MainImage"): "https://example.com/better.png"}
+    row = map_product(_product(), resolutions={}, overrides=overrides)
+    assert row["Name"] == "Corrected Name"
+    assert row["MainImage"] == "https://example.com/better.png"
+    assert row["Description"] == "desc"  # untouched fields still come from the feed
+
+
+def test_field_override_is_scoped_to_its_own_sku():
+    overrides = {("SOME-OTHER-SKU", "Name"): "Should not apply"}
+    row = map_product(_product(), resolutions={}, overrides=overrides)
+    assert row["Name"] == "UGREEN Charger"
+
+
+def test_price_override_is_coerced_to_float():
+    overrides = {("UG-1", "Price_KES"): "9999"}
+    row = map_product(_product(), resolutions={}, overrides=overrides)
+    assert row["Price_KES"] == 9999.0

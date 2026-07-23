@@ -91,7 +91,11 @@ def test_golden_end_to_end_export(tmp_path, monkeypatch):
     }
     assert not passing_row_issues & {"image_reachable", "image_min_dims", "image_white_bg"}
 
-    result = pipeline.run_export(conn, run_id=validation.run_id, out_dir=str(tmp_path / "out"))
+    results = pipeline.run_export(conn, run_id=validation.run_id, out_dir=str(tmp_path / "out"))
+    # One category (UG-55551B's) among the approved rows -> one file (Readme.md #11).
+    assert len(results) == 1
+    result = results[0]
+    assert result.category == "1000473"
     assert result.rows_written == 1
     # rejects.csv is one row per (sku, rule) block violation, not per sku --
     # a blocked sku can fail several rules at once (Readme.md #11).

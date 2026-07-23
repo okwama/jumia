@@ -55,14 +55,16 @@ def cmd_validate(_args: argparse.Namespace) -> None:
 def cmd_export(args: argparse.Namespace) -> None:
     conn = _connect()
     try:
-        result = pipeline.run_export(conn, run_id=args.run_id)
+        results = pipeline.run_export(conn, run_id=args.run_id)
     except ValueError as exc:
         print(exc)
         return
-    print(
-        f"Exported {result.rows_written} rows to {result.output_path}; "
-        f"{result.rows_rejected} blocked rows logged to {result.rejects_path}"
-    )
+    if not results:
+        print("No approved rows to export.")
+        return
+    for result in results:
+        print(f"Category {result.category}: {result.rows_written} rows -> {result.output_path}")
+    print(f"{results[0].rows_rejected} blocked rows logged to {results[0].rejects_path}")
 
 
 def cmd_serve(_args: argparse.Namespace) -> None:

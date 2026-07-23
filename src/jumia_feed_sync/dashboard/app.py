@@ -10,13 +10,14 @@ single-operator local tool.
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from jumia_feed_sync import config, db, pipeline
+from jumia_feed_sync import config, db, pipeline, resolve
 
 app = FastAPI(title="Jumia Feed Sync")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -29,6 +30,8 @@ FILTERS = [
     ("unresolved_category", "Unresolved category"),
     ("missing_image", "Missing image"),
 ]
+
+EDITABLE_FIELDS = ["Name", "Description", "MainImage"]
 
 
 def _connect() -> sqlite3.Connection:
@@ -224,4 +227,104 @@ def review_override(request: Request, run_id: int, action: str = Form(...), sku:
         conn.close()
     return templates.TemplateResponse(
         request, "_grid.html", {"run_id": run_id, "rows": rows, "counts": counts, "filters": FILTERS, "active_filter": "all"},
+    )
+
+
+@app.post("/review/{run_id}/export")
+def review_export(request: Request, run_id: int):
+    conn = _connect()
+    try:
+        try:
+            results = pipeline.run_export(conn, run_id=run_id)
+            error = None
+        except ValueError as exc:
+            results, error = [], str(exc)
+    finally:
+        conn.close()
+    return templates.TemplateResponse(request, "_export_result.html", {"results": results, "error": error})
+
+
+@app.get("/review/{run_id}/edit/{sku}")
+def review_edit_form(request: Request, run_id: int, sku: str):
+    conn = _connect()
+    try:
+        overrides = dict(conn.execute("SELECT field, value FROM field_overrides WHERE sku = ?", (sku,)).fetchall())
+        product = conn.execute("SELECT title, description, image_link FROM products WHERE sku = ?", (sku,)).fetchone()
+    finally:
+        conn.close()
+    title, description, image_link = product if product else (None, None, None)
+    current = {
+        "Name": overrides.get("Name", title or ""),
+        "Description": overrides.get("Description", description or ""),
+        "MainImage": overrides.get("MainImage", image_link or ""),
+    }
+    return templates.TemplateResponse(request, "_edit_form.html", {"run_id": run_id, "sku": sku, "current": current})
+
+
+@app.post("/review/{run_id}/edit/{sku}")
+def review_edit_save(
+    request: Request,
+    run_id: int,
+    sku: str,
+    Name: str = Form(""),
+    Description: str = Form(""),
+    MainImage: str = Form(""),
+):
+    conn = _connect()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        values = {"Name": Name, "Description": Description, "MainImage": MainImage}
+        for field in EDITABLE_FIELDS:
+            value = values[field].strip()
+            if value:
+                conn.execute(
+                    """
+                    INSERT INTO field_overrides (sku, field, value, updated_at) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(sku, field) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+                    """,
+                    (sku, field, value, now),
+                )
+            else:
+                conn.execute("DELETE FROM field_overrides WHERE sku = ? AND field = ?", (sku, field))
+        conn.commit()
+    finally:
+        conn.close()
+    return templates.TemplateResponse(request, "_edit_saved.html", {"sku": sku})
+
+
+@app.get("/unresolved")
+def unresolved_page(request: Request, kind: str = "brand"):
+    conn = _connect()
+    try:
+        groups = resolve.list_unresolved(conn, kind)
+    finally:
+        conn.close()
+    return templates.TemplateResponse(request, "unresolved.html", {"kind": kind, "groups": groups})
+
+
+@app.get("/unresolved/suggestions")
+def unresolved_suggestions(request: Request, kind: str, raw_value: str):
+    conn = _connect()
+    try:
+        suggestions = resolve.suggest(conn, kind, raw_value)
+    finally:
+        conn.close()
+    return templates.TemplateResponse(request, "_suggestions.html", {"suggestions": suggestions})
+
+
+@app.post("/unresolved/resolve")
+def unresolved_resolve(
+    request: Request,
+    kind: str = Form(...),
+    raw_value: str = Form(...),
+    jumia_id: str = Form(...),
+    jumia_label: str = Form(...),
+):
+    conn = _connect()
+    try:
+        resolve.confirm(conn, kind, raw_value, jumia_id, jumia_label)
+    finally:
+        conn.close()
+    return templates.TemplateResponse(
+        request, "_resolved_confirmation.html", {"raw_value": raw_value, "jumia_id": jumia_id, "jumia_label": jumia_label},
     )

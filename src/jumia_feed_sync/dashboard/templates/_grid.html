@@ -51,7 +51,7 @@
       {% if row.issue_count %}
         <button
           type="button"
-          hx-get="/review/{{ run_id }}/detail/{{ row.sku }}"
+          hx-get="/review/{{ run_id }}/detail/{{ row.sku | urlencode }}"
           hx-target="#detail-{{ loop.index0 }}"
           hx-swap="innerHTML"
           class="text-blue-600 underline"
@@ -59,7 +59,17 @@
           {{ row.issue_count }} issue{{ 's' if row.issue_count != 1 else '' }}
         </button>
       {% endif %}
+      <button
+        type="button"
+        hx-get="/review/{{ run_id }}/edit/{{ row.sku | urlencode }}"
+        hx-target="#edit-{{ loop.index0 }}"
+        hx-swap="innerHTML"
+        class="text-gray-600 underline ml-1"
+      >
+        edit
+      </button>
       <div id="detail-{{ loop.index0 }}"></div>
+      <div id="edit-{{ loop.index0 }}"></div>
     </div>
   </div>
   {% else %}

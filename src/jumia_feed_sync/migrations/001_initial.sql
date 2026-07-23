@@ -94,5 +94,13 @@ CREATE TABLE image_cache (
     checked_at TEXT NOT NULL
 );
 
+CREATE TABLE field_overrides (
+    sku TEXT NOT NULL,
+    field TEXT NOT NULL CHECK (field IN ('Name', 'Description', 'MainImage', 'Price_KES')),
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (sku, field)
+);
+
 CREATE INDEX idx_row_issues_run ON row_issues(run_id);
 CREATE INDEX idx_run_products_run ON run_products(run_id);

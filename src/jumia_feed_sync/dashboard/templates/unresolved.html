@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 class="text-xl font-bold mb-4">Unresolved</h1>
+
+<div class="flex gap-2 mb-4">
+  <a href="/unresolved?kind=brand" class="px-3 py-1 rounded border text-sm {% if kind == 'brand' %}bg-blue-600 text-white border-blue-600{% else %}bg-white{% endif %}">
+    Brands
+  </a>
+  <a href="/unresolved?kind=category" class="px-3 py-1 rounded border text-sm {% if kind == 'category' %}bg-blue-600 text-white border-blue-600{% else %}bg-white{% endif %}">
+    Categories
+  </a>
+</div>
+
+<div class="space-y-2 max-w-2xl">
+  {% for group in groups %}
+  <div class="unresolved-group bg-white rounded shadow p-3" id="group-{{ loop.index0 }}">
+    <div>
+      <span class="font-medium">{{ group.raw_value }}</span>
+      <span class="text-gray-500 text-sm">({{ group.product_count }} product{{ 's' if group.product_count != 1 else '' }})</span>
+    </div>
+    <div
+      hx-get="/unresolved/suggestions?kind={{ kind }}&raw_value={{ group.raw_value | urlencode }}"
+      hx-trigger="load"
+      hx-swap="innerHTML"
+      class="mt-2 flex gap-2 flex-wrap text-xs"
+    >
+      <span class="text-gray-400">Loading suggestions&hellip;</span>
+    </div>
+    <form hx-post="/unresolved/resolve" hx-target="#group-{{ loop.index0 }}" hx-swap="outerHTML" class="mt-2 flex gap-2 items-center flex-wrap">
+      <input type="hidden" name="kind" value="{{ kind }}">
+      <input type="hidden" name="raw_value" value="{{ group.raw_value }}">
+      <input type="text" name="jumia_id" placeholder="Jumia ID" class="border rounded px-2 py-1 text-sm w-28" required>
+      <input type="text" name="jumia_label" placeholder="Label" class="border rounded px-2 py-1 text-sm flex-1 min-w-[12rem]" required>
+      <button type="submit" class="bg-blue-600 text-white px-3 py-1 rounded text-sm">Confirm</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="text-gray-500">Nothing unresolved for this kind.</p>
+  {% endfor %}
+</div>
+{% endblock %}

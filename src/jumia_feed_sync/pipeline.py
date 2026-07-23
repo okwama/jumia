@@ -27,6 +27,7 @@ class ValidationResult:
 @dataclass
 class ExportResult:
     run_id: int
+    category: str
     rows_written: int
     rows_rejected: int
     output_path: str
@@ -82,6 +83,7 @@ def _validate_core(conn: sqlite3.Connection, run_id: int, rules_path: str | None
     rules = load_rules(rules_path or config.RULES_PATH)
     products = _fetch_all_products(conn)
     resolutions = mapping.load_resolutions(conn)
+    overrides = mapping.load_overrides(conn)
 
     batch: list[dict] = []
     meta: dict[str, dict] = {}
@@ -89,7 +91,7 @@ def _validate_core(conn: sqlite3.Connection, run_id: int, rules_path: str | None
 
     for product in products:
         sku = product["sku"]
-        mapped = mapping.map_product(product, resolutions)
+        mapped = mapping.map_product(product, resolutions, overrides)
         try:
             row_dict = ExportRow(**mapped).model_dump()
         except ValidationError as exc:
@@ -191,17 +193,27 @@ def run_ingest_and_validate(
         raise
 
 
-def run_export(conn: sqlite3.Connection, run_id: int | None = None, out_dir: str = "./out") -> ExportResult:
-    """Rows are re-derived from live products+resolutions at export time
-    (not stored verbatim in run_products, which only keeps a status
-    summary) -- the approved SKU *set* comes from the run, current field
-    values come from staging. If products/resolutions changed since
-    validation, re-run validation before exporting.
+def run_export(conn: sqlite3.Connection, run_id: int | None = None, out_dir: str = "./out") -> list[ExportResult]:
+    """Rows are re-derived from live products+resolutions+overrides at
+    export time (not stored verbatim in run_products, which only keeps a
+    status summary) -- the approved SKU *set* comes from the run,
+    current field values come from staging. If products/resolutions
+    changed since validation, re-run validation before exporting.
 
     A row's automated status can be overridden by a human in the Review
     Grid (run_products.human_override, Readme.md #10): 'excluded' drops
     an otherwise passed/warned row, 'approved' includes an otherwise
-    blocked one."""
+    blocked one.
+
+    Jumia's Seller Center upload flow requires selecting one category
+    before uploading (confirmed 2026-07-23) -- a single file mixing rows
+    from several categories isn't something you can actually upload. So
+    this writes one .xlsx per resolved category ID among the approved
+    rows, not one file for the whole run. A row with no resolved
+    category (only possible via a human 'approved' override on a row
+    that was blocked for missing category -- normal validation would
+    never let that through) lands in a clearly-named 'uncategorized'
+    file rather than being silently dropped."""
     if run_id is None:
         row = conn.execute(
             "SELECT id FROM validation_runs WHERE status = 'completed' ORDER BY id DESC LIMIT 1"
@@ -226,13 +238,17 @@ def run_export(conn: sqlite3.Connection, run_id: int | None = None, out_dir: str
     ]
     products = _fetch_products_by_sku(conn, approved_skus)
     resolutions = mapping.load_resolutions(conn)
+    overrides = mapping.load_overrides(conn)
 
-    rows = []
+    rows_by_category: dict[str, list[dict]] = {}
     for sku in approved_skus:
         product = products.get(sku)
         if product is None:
             continue
-        rows.append(ExportRow(**mapping.map_product(product, resolutions)).model_dump())
+        row = ExportRow(**mapping.map_product(product, resolutions, overrides)).model_dump()
+        category_value = row.get("PrimaryCategory")
+        category_key = category_value.split(" - ", 1)[0] if category_value else "uncategorized"
+        rows_by_category.setdefault(category_key, []).append(row)
 
     issues = [
         Issue(sku=r[0], field=r[1], severity=r[2], rule_id=r[3], message=r[4])
@@ -244,19 +260,25 @@ def run_export(conn: sqlite3.Connection, run_id: int | None = None, out_dir: str
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    output_path = out_path / f"jumia_upload_{timestamp}.xlsx"
-    rejects_path = out_path / f"rejects_{timestamp}.csv"
 
-    written = export.write_export(rows, config.UPLOAD_TEMPLATE_PATH, str(output_path))
+    rejects_path = out_path / f"rejects_{timestamp}.csv"
     rejected = export.write_rejects_csv(issues, str(rejects_path))
 
-    conn.execute("UPDATE validation_runs SET exported_path = ? WHERE id = ?", (str(output_path), run_id))
+    results = []
+    for category_key, rows in rows_by_category.items():
+        output_path = out_path / f"jumia_upload_{category_key}_{timestamp}.xlsx"
+        written = export.write_export(rows, config.UPLOAD_TEMPLATE_PATH, str(output_path))
+        results.append(
+            ExportResult(
+                run_id=run_id, category=category_key, rows_written=written, rows_rejected=rejected,
+                output_path=str(output_path), rejects_path=str(rejects_path),
+            )
+        )
+
+    conn.execute(
+        "UPDATE validation_runs SET exported_path = ? WHERE id = ?",
+        (",".join(r.output_path for r in results), run_id),
+    )
     conn.commit()
 
-    return ExportResult(
-        run_id=run_id,
-        rows_written=written,
-        rows_rejected=rejected,
-        output_path=str(output_path),
-        rejects_path=str(rejects_path),
-    )
+    return results

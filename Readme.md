@@ -1,6 +1,6 @@
 # PRD / Architecture: Jumia Feed Sync
 
-**Owner:** Benjamin · **Status:** Draft v0.7 · **Date:** 23 Jul 2026
+**Owner:** Benjamin · **Status:** Draft v0.8 · **Date:** 23 Jul 2026
 
 ---
 
@@ -130,7 +130,13 @@ row_issues
 
 image_cache
   url PK, status_code, width, height, bytes, format, corner_luminance, checked_at
+
+field_overrides  -- human edits to Name/Description/MainImage, survive re-ingest
+  sku, field ('Name'|'Description'|'MainImage'|'Price_KES'), value, updated_at
+  PRIMARY KEY (sku, field)
 ```
+
+`field_overrides` exists because `products` is overwritten on every feed ingest (§4) -- editing `title` directly there would just get silently wiped the next time the feed syncs. `mapping.map_product` applies any override on top of the ingested value every time a product is mapped, so an edit persists across ingests until explicitly changed or cleared.
 
 `run_products.human_override` (M3) is the Review Grid's approve/exclude action: a human can flip an automated decision -- exclude an otherwise passed/warned row (bad image content the rules can't see), or approve an otherwise blocked one (a false positive, or a rule you're choosing to override this once). `run_export` treats `excluded` as "never export this, regardless of status" and `approved` as "always export this, regardless of status" (§11).
 
@@ -152,11 +158,11 @@ This is the hardest part and deserves its own treatment.
 
 **The problem:** Feed says `Components & Accessories`. Jumia wants `1002708 - Computing / Computer Accessories / Printer Ink & Toner / Inkjet Printer Ink`. **Real count, confirmed 2026-07-23 against Jumia's own guidelines workbook: 1,913 categories** (the earlier "~30k" guess was wrong — corrected everywhere it appeared, §15 included). No public API for the ID mapping.
 
-**Approach — three tiers:**
+**Approach — three tiers, all implemented as of 2026-07-23 (pulled forward from M4 — see §10):**
 
-1. **Exact cache hit.** `resolutions` table lookup on `raw_value`. Instant, no review.
-2. **Fuzzy suggestion.** `rapidfuzz` scores the feed `product_type` + `title` tokens against `id_label_catalog` (§6). Top 5 candidates surfaced in the dashboard with scores. Human picks; choice is cached permanently in `resolutions`.
-3. **Manual entry.** Nothing scores above threshold → operator pastes the `ID - Path` string from Seller Center. Cached.
+1. **Exact cache hit.** `resolutions` table lookup on `raw_value`. Instant, no review. (`mapping.map_product`)
+2. **Fuzzy suggestion.** `rapidfuzz` scores the raw feed value against `id_label_catalog` (§6). Top 5 candidates surfaced in the dashboard's Unresolved screen with scores, lazily per row. Human picks; choice is cached permanently in `resolutions`. (`resolve.suggest`, `/unresolved`)
+3. **Manual entry.** Same screen, a free-text `jumia_id`/`jumia_label` pair, for when nothing scores well — confirmed necessary in practice, not just a theoretical fallback: the seller's own store name (`GizmoJunction`, used as `brand_raw` on generic items) has no real match in Jumia's brand catalog at all (§10). Cached the same way. (`resolve.confirm`)
 
 **The UUID problem is resolved, not just worked around.** The original plan was the commission sheet's `PATH` column, whose `CATEGORY SID`s are UUIDs — not the numeric IDs the template needs. That's moot now: **Jumia's own seller guidelines workbook** (`Brands` and `Categories` sheets, harvested via `bootstrap-guidelines`, §12) is a direct, authoritative `ID - Label` list — 175,460 real brand codes, 1,913 real category codes, straight from Jumia, already in the correct numeric-ID format. This is now the primary source for `id_label_catalog`; the filled-template harvest (`bootstrap`) is a secondary source that only confirms categories/brands already in active use. The commission sheet, if you still get hold of it, now matters only for its fee/commission percentages (§13 Open Decision 6), not for category resolution at all.
 
@@ -288,14 +294,22 @@ Cloudinary note — your URLs already support transforms (`w_800,h_800,c_pad,b_w
 | Screen | Purpose | Status |
 |---|---|---|
 | **Run** | Trigger fetch, live progress, summary counts (parsed / passed / warned / blocked) | Done (M3) |
-| **Review Grid** | Image wall with filters and bulk approve/exclude | Done (M3) -- filters are `all/blocked/warned/passed/unresolved_category/missing_image`, not literal inline field edits (deferred, see below) |
-| **Unresolved** | Category & brand queue — fuzzy candidates with scores, one-click confirm | M4 |
+| **Review Grid** | Image wall with filters, bulk approve/exclude, per-tile edit | Done (M3 + this pass) -- filters are `all/blocked/warned/passed/unresolved_category/missing_image` |
+| **Unresolved** | Category & brand queue — fuzzy candidates with scores, one-click confirm | Done (pulled forward from M4, 2026-07-23 — see below) |
 | **Rules** | YAML editor with live re-validate against last run, no restart | M5 |
 | **Mapping** | Feed field → template column editor | M5 |
 | **Margin** | Per-SKU: price, commission %, DS fee, net, flagged negatives | M5 (also blocked on Open Decision 6 -- no commission sheet yet) |
 | **History** | Past runs, downloadable exports, diff vs previous run | Not milestoned yet |
 
-**M3 scope notes.** Two things called for in §9's original dashboard bullet list didn't make the cut, deliberately: inline field edits on a tile (the Review Grid shows and lets you approve/exclude, not edit `Name`/`Brand`/etc. in place -- that's a bigger UI surface, folds naturally into the Mapping/Rules editors in M5) and the **re-probe** bulk action. Re-probe turned out to matter more than expected: real verification (2026-07-23) hit a transient network failure on a HEAD request that got cached as `status_code=None` ("unreachable") for the full `image_cache.max_age_hours` (24h) -- a one-off blip now blocks that row for a day with no way to force a recheck except waiting out the TTL or manually clearing the cache row. Worth prioritizing early in whatever milestone picks this back up.
+**M3 scope notes.** Two things called for in §9's original dashboard bullet list didn't make the M3 cut: inline field edits on a tile, and the **re-probe** bulk action. Re-probe turned out to matter more than expected: real verification (2026-07-23) hit a transient network failure on a HEAD request that got cached as `status_code=None` ("unreachable") for the full `image_cache.max_age_hours` (24h) -- a one-off blip now blocks that row for a day with no way to force a recheck except waiting out the TTL or manually clearing the cache row. Still not built (worth prioritizing whenever image pipeline work picks back up); field editing was, see below.
+
+**Unresolved queue, pulled forward from M4 (2026-07-23).** Turned out to be blocking, not a nice-to-have: without it, resolving a brand or category required hand-writing SQL `INSERT`s into `resolutions`, which isn't something an actual operator can do. Grouped by raw feed value, not by product (58 real UGREEN products share one raw `brand_raw` — resolve it once, not 58 times). Fuzzy suggestions score the raw value against `id_label_catalog` (§7) via `rapidfuzz`, lazily per row (not precomputed for the whole list — see the performance note below). Confirming a suggestion, or typing a manual `jumia_id`/`jumia_label` pair, calls `resolve.confirm()`, which writes `resolutions` *and* appends to `resolutions_history` (§15 principle 3) — every change is what powers the Review Grid, resolves both DB tiers cleanly per §7.
+
+**Real-data finding: not every raw value has a good match.** `GizmoJunction` — the seller's own store name, used as `brand_raw` for generic/unbranded items in the feed — scored its top fuzzy "matches" at 90% against unrelated brands (`Gizmo`, `Giz`, `Ct+`). There's no real Jumia brand called GizmoJunction; a human has to recognize this and type the actual answer (`1045133 - Generic`) manually rather than trust the suggestion. This is exactly why manual entry (tier 3, §7) has to stay a first-class path, not a fallback buried behind fuzzy suggestions.
+
+**Performance finding: the naive approach doesn't scale, caching does (confirmed 2026-07-23).** A single fuzzy lookup against the real 175,460-row brand catalog took **3.5-4.9s** end-to-end the first time: ~1.7s was SQLite re-fetching all 175K rows (identical on every request, since the catalog barely changes), ~1-1.3s was the `WRatio` scoring itself, plus overhead. Caching the catalog in-process per `kind` (invalidated only by restarting the dashboard — acceptable, since a bootstrap harvest doesn't happen while someone's mid-resolution-session) cut it to **~2s** on a warm cache. Tried a cheaper scorer (`QRatio`) as the other lever: same speed win, but it measurably degraded category-match quality on real data (buried the correct "Computing / Computer Accessories" match under irrelevant categories for a "Components & Accessories" query) — not worth the trade. 2s per lookup is fine for occasional manual resolution; a smarter candidate-narrowing approach (e.g. bucket by first letter before scoring) would be the next lever if this becomes a bottleneck at higher usage.
+
+**Field editing (this pass, not originally milestoned).** A per-tile "edit" action on the Review Grid lets you correct `Name`, `Description`, or `MainImage` without touching `products` — which is overwritten on every feed ingest, so an edit made there would be silently lost on the next fetch. Edits live in `field_overrides` (§6) and are applied by `mapping.map_product` on top of the ingested value, every time a product is mapped. Deliberately narrower than M5's full Mapping screen (that's feed-field → template-column configuration; this is per-SKU data correction) — different problem, smaller surface, built now because it was asked for directly.
 
 **Configurability is the design constraint.** Every threshold, regex, required-attribute set, and field mapping is YAML-backed and editable in-app. Editing a rule re-validates the cached last run immediately — no re-fetch, no restart. This is what makes the system survive Jumia changing their mind.
 
@@ -303,9 +317,11 @@ Cloudinary note — your URLs already support transforms (`w_800,h_800,c_pad,b_w
 
 ## 11. Export
 
-`openpyxl` loads `Upload_Template.xlsx`, clears rows 2+, appends approved rows in the template's exact column order (full width, header-driven — see §13 Open Decision 5 on confirming the real column count/letters before hardcoding any range). Header row untouched. Output: `out/jumia_upload_YYYYMMDD_HHMM.xlsx`.
+**Jumia's Seller Center upload flow is category-scoped (confirmed 2026-07-23, not in earlier drafts of this PRD): you select one category before uploading, so a template file can only contain rows for that category.** This changes the shape of export from "one file per run" to **one `.xlsx` per resolved category ID among the approved rows** — mixing categories into a single file isn't something you could actually upload. Rows with no resolved category (only reachable via a human `approved` override on a row that was blocked for missing category; normal validation never lets this through) land in a clearly-named `uncategorized` file rather than being silently dropped.
 
-Companion artifacts: `rejects.csv` (sku, rule_id, field, message) and `margin_report.csv` are built from that run's `run_products` + `row_issues` rows (§6), not live `products` — so they stay accurate even after the next ingest overwrites staging. Plus `run_summary.json`.
+For each category file: `openpyxl` loads `Upload_Template.xlsx`, clears rows 2+, appends that category's approved rows in the template's exact column order (full width, header-driven — see §13 Open Decision 5 on confirming the real column count/letters before hardcoding any range). Header row untouched. Output: `out/jumia_upload_{category_id}_YYYYMMDD_HHMMSS.xlsx`, one per category.
+
+Companion artifacts, shared across the whole run (not per-category — a blocked row isn't going into any Jumia upload, so splitting rejects by category doesn't apply the same way): `rejects.csv` (sku, rule_id, field, message), built from that run's `row_issues` (§6), not live `products` — so it stays accurate even after the next ingest overwrites staging. `margin_report.csv` and `run_summary.json` are still not built (blocked on Open Decision 6 for the former).
 
 Idempotency via `feed_hash` — unchanged products are skipped unless `--force`.
 
@@ -319,8 +335,8 @@ Idempotency via `feed_hash` — unchanged products are skipped unless `--force`.
 | **M1** | Rule engine (config schema-validated, collect-all evaluation) + pydantic model + export writer + unit tests + golden-file export test | Done: `validate`/`export` CLI, 49 tests passing, verified against real staged data (58/745 real products exported cleanly once brand+category resolved) |
 | **M2** | Image probe pipeline + cache | Done: `image.py` (async, concurrency-capped, TTL-cached), wired into `validate`'s rule evaluation; verified against real Cloudinary images (correctly caught one real undersized image) |
 | **M3** | Dashboard: run + review grid + image wall + run failure state surfaced | Done: FastAPI + Jinja2 + HTMX, `jumia-feed-sync serve` (or `start.ps1`); verified in-browser against real data including a live human-approve override changing what `export` actually wrote |
-| **M4** | Unresolved queue with fuzzy candidates + `resolutions_history` audit trail | Category resolution UX |
-| **M5** | Rules/mapping editors in-app + margin report | Full configurability |
+| **M4** | Unresolved queue with fuzzy candidates + `resolutions_history` audit trail | Done (pulled forward 2026-07-23, ahead of M3's original sequence): `resolve.py`, `/unresolved`; verified against real data — resolved a real brand (UGREEN → 1118344) and a real category through the actual UI, including one manual-entry case (fuzzy scoring had no good match) |
+| **M5** | Rules/mapping editors in-app + margin report | Per-SKU field editing (`field_overrides`, narrower than the full Mapping screen) done this pass; Rules editor, full Mapping screen, and Margin report still open |
 
 M0–M2 is a usable system. M3+ is the review layer.
 

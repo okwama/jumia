@@ -1,0 +1,15 @@
+<div class="bg-white rounded shadow p-3 mt-4 max-w-2xl">
+  {% if error %}
+    <p class="text-red-600">{{ error }}</p>
+  {% elif results %}
+    <p class="font-medium mb-1">Exported {{ results|length }} file{{ 's' if results|length != 1 else '' }} (one per category -- Jumia's upload flow is category-scoped):</p>
+    <ul class="text-sm space-y-0.5">
+      {% for r in results %}
+      <li>Category {{ r.category }}: {{ r.rows_written }} rows &mdash; <code class="text-xs">{{ r.output_path }}</code></li>
+      {% endfor %}
+    </ul>
+    <p class="text-xs text-gray-500 mt-1">{{ results[0].rows_rejected }} blocked rows logged to <code>{{ results[0].rejects_path }}</code></p>
+  {% else %}
+    <p class="text-gray-500">No approved rows to export.</p>
+  {% endif %}
+</div>

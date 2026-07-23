@@ -5,6 +5,17 @@
 {% if run_id is none %}
   <p class="text-gray-500">No completed run yet. <a href="/run" class="text-blue-600 underline">Start one</a>.</p>
 {% else %}
+  <button
+    type="button"
+    hx-post="/review/{{ run_id }}/export"
+    hx-target="#export-result"
+    hx-swap="innerHTML"
+    class="bg-purple-600 text-white px-3 py-1 rounded text-sm mb-4"
+  >
+    Export approved rows
+  </button>
+  <div id="export-result"></div>
+
   <form hx-post="/review/{{ run_id }}/override" hx-target="#grid" hx-swap="innerHTML">
     <div id="grid">
       {% include "_grid.html" %}
