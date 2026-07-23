@@ -19,7 +19,7 @@ CREATE TABLE id_label_catalog (
     kind TEXT NOT NULL CHECK (kind IN ('brand', 'category', 'parent_sku')),
     jumia_id TEXT NOT NULL,
     jumia_label TEXT NOT NULL,
-    source TEXT NOT NULL CHECK (source IN ('template', 'commission_sheet', 'manual')),
+    source TEXT NOT NULL CHECK (source IN ('template', 'jumia_reference', 'commission_sheet', 'manual')),
     first_seen_at TEXT NOT NULL,
     UNIQUE (kind, jumia_id)
 );

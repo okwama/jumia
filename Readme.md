@@ -1,6 +1,6 @@
 # PRD / Architecture: Jumia Feed Sync
 
-**Owner:** Benjamin · **Status:** Draft v0.3 · **Date:** 23 Jul 2026
+**Owner:** Benjamin · **Status:** Draft v0.4 · **Date:** 23 Jul 2026
 
 ---
 
@@ -145,15 +145,15 @@ image_cache
 
 This is the hardest part and deserves its own treatment.
 
-**The problem:** Feed says `Components & Accessories`. Jumia wants `1002708 - Computing / Computer Accessories / Printer Ink & Toner / Inkjet Printer Ink`. There are ~30k Jumia categories. No public API for the ID mapping.
+**The problem:** Feed says `Components & Accessories`. Jumia wants `1002708 - Computing / Computer Accessories / Printer Ink & Toner / Inkjet Printer Ink`. **Real count, confirmed 2026-07-23 against Jumia's own guidelines workbook: 1,913 categories** (the earlier "~30k" guess was wrong — corrected everywhere it appeared, §15 included). No public API for the ID mapping.
 
 **Approach — three tiers:**
 
 1. **Exact cache hit.** `resolutions` table lookup on `raw_value`. Instant, no review.
-2. **Fuzzy suggestion.** `rapidfuzz` scores the feed `product_type` + `title` tokens against the commission sheet's `PATH` column. Top 5 candidates surfaced in the dashboard with scores. Human picks; choice is cached permanently.
+2. **Fuzzy suggestion.** `rapidfuzz` scores the feed `product_type` + `title` tokens against `id_label_catalog` (§6). Top 5 candidates surfaced in the dashboard with scores. Human picks; choice is cached permanently in `resolutions`.
 3. **Manual entry.** Nothing scores above threshold → operator pastes the `ID - Path` string from Seller Center. Cached.
 
-**Critical constraint:** the commission sheet uses UUID `CATEGORY SID`s, which are *not* the numeric IDs the template needs. So the fee sheet gives you the path text and commission data, but the numeric ID must come from the template's existing rows or manual Seller Center lookup. Bootstrap harvests all `ID - Path` pairs from any filled template you feed it.
+**The UUID problem is resolved, not just worked around.** The original plan was the commission sheet's `PATH` column, whose `CATEGORY SID`s are UUIDs — not the numeric IDs the template needs. That's moot now: **Jumia's own seller guidelines workbook** (`Brands` and `Categories` sheets, harvested via `bootstrap-guidelines`, §12) is a direct, authoritative `ID - Label` list — 175,460 real brand codes, 1,913 real category codes, straight from Jumia, already in the correct numeric-ID format. This is now the primary source for `id_label_catalog`; the filled-template harvest (`bootstrap`) is a secondary source that only confirms categories/brands already in active use. The commission sheet, if you still get hold of it, now matters only for its fee/commission percentages (§13 Open Decision 6), not for category resolution at all.
 
 **Category-driven attributes.** Once category is known, the rule config declares which of the template's category-specific attribute columns are required for it (exact column letters TBD against the real template — see §13 Open Decision 5):
 
@@ -303,7 +303,7 @@ Idempotency via `feed_hash` — unchanged products are skipped unless `--force`.
 
 | M | Scope | Output |
 |---|---|---|
-| **M0** | Feed parse + SQLite staging (incl. `run_products.stage`) + bootstrap harvester from filled template | CLI dumps normalized products, seeds `resolutions` |
+| **M0** | Feed parse + SQLite staging (incl. `run_products.stage`) + bootstrap harvesters (filled template + Jumia guidelines workbook) | CLI dumps normalized products, seeds `id_label_catalog` — done: 745 products ingested, 177,373 id/label pairs harvested |
 | **M1** | Rule engine (config schema-validated, collect-all evaluation) + pydantic model + export writer + unit tests + golden-file export test | Working CLI end-to-end, no UI |
 | **M2** | Image probe pipeline + cache + resumable stage tracking | Dimension/reachability enforcement, resumes after mid-run failure |
 | **M3** | Dashboard: run + review grid + image wall + run failure state surfaced | Visual approval loop |
@@ -316,12 +316,13 @@ M0–M2 is a usable system. M3+ is the review layer.
 
 ## 13. Open Decisions
 
-1. **Brand strategy.** ~~Every existing row uses~~ **Confirmed against the real filled template (2026-07-23):** all 6 sample rows use `1045133 - Generic`, including UGREEN and Epson products that plausibly have their own Jumia brand IDs. Still your call, but it's now a verified current-state fact, not an assumption — own-brand listings rank better, and every product exported before this is decided inherits the choice.
+1. **Brand strategy — now a fully informed decision, not a guess.** All 6 sample template rows use `1045133 - Generic`. Checked against Jumia's real 175,460-brand reference list (§7): **every brand in your feed sample already has its own real Jumia code** — `1118344 - Ugreen`, `1036890 - Epson`, `1069068 - Lenovo`, `1017163 - Brother`, `1105916 - Sandisk`, `1071398 - Logitech`. Generic wasn't a fallback for missing brand codes; the real codes were available the whole time. Still your call whether to switch, but it's no longer "maybe UGREEN has an ID" — it does, confirmed. If you switch, `id_label_catalog` (source `jumia_reference`) already has every code you'd need; the RESOLVE stage just needs `resolutions` entries pointing feed `brand_raw` values at them instead of at Generic.
 2. **Description quality.** In the feed sample, `g:description` is byte-identical to `g:title`. Jumia listings with a one-line description convert badly. Either fix the feed at source in GizmoJunction, or the system generates `short_description` bullets — which means an LLM step in the pipeline, worth scoping separately.
 3. **Name length floor.** Your feed titles run ~60 chars; template examples run ~75. Confirm Jumia's actual minimum before setting `min_length: 20`.
 4. **ParentSKU derivation — resolved as "not pure prefix-stripping."** Real evidence from the template: `T6641/T6642/T6643/T6644` all correctly parent to `T664` (a simple "strip last character" rule would work here). But `BT5000M` and `BT5000Y` both parent to **`BT5000N`** — a string that isn't a substring of either SKU. A prefix-stripping rule cannot produce that; it looks like a manually assigned parent identifier tied to a "neutral" placeholder variant. **Conclusion: ParentSKU can't be purely rule-derived.** Treat it like brand/category — a `resolutions`-style lookup (`kind='parent_sku'`) that falls back to manual entry, not a regex.
 5. **Template column range — resolved.** Confirmed against the real header: `Name...Stock` = A–Q, category-conditional attributes (`battery_capacity...youtube_id`) = R–BH, images (`MainImage, Image2–8`) = BI–BP. Full width A–BP (68 columns), matching §1's "68-column XLSX template." §7 and §11 were both right, about different column ranges — no longer ambiguous, but the export writer should still derive column order from the parsed header at runtime (§14) rather than hardcoding these letters, since Jumia can change the template without notice.
-6. **Commission & shipping sheet not yet provided.** The real files dropped so far are `Upload_Template.xlsx` (used below) and an internal GizmoJunction sales workbook (`Dashboard`/`Quotation`/`Invoice`/`Receipt`/`Products`/`Sales Log`/`Raw Import` — WooCommerce export, real customer/invoice data). Neither is the ~30k-row Jumia category/commission/fee sheet described in §5/§7. The `Products` sheet in the sales workbook does have a per-SKU `Cost (KES)` column, which is the *other* half of margin math (§10's Margin screen needs both Jumia's commission % and GizmoJunction's own cost) — but §6's data model has no `cost_kes` column to receive it yet. Needs a decision: source `cost_kes` from that sheet (one-time import, keyed by SKU) and locate the actual Jumia commission sheet separately, or defer the Margin screen (M5) until both exist.
+6. **Commission & shipping sheet — still not provided, but the scope shrank.** Three real files have now been dropped: `Upload_Template.xlsx`, an internal GizmoJunction sales workbook (`Dashboard`/`Quotation`/`Invoice`/`Receipt`/`Products`/`Sales Log`/`Raw Import` — WooCommerce export, real customer/invoice data, correctly never committed), and Jumia's own guidelines workbook (`Introduction`/`Upload Template`/`Brands`/`Categories`/`Options` — see §7). None of the three is the commission/fee sheet. Since §7's UUID problem is now solved by the guidelines workbook, the commission sheet's *only* remaining job is fee/commission percentages for margin math — category resolution no longer depends on it at all. The sales workbook's `Products` sheet does have a per-SKU `Cost (KES)` column, the other half of margin math, but §6 has no `cost_kes` column to receive it yet. Needs a decision: import `cost_kes` from that sheet now (keyed by SKU) and locate the actual commission/fee sheet separately, or defer the Margin screen (M5) until both exist. Not urgent — M5 is the last milestone.
+7. **`Options` sheet (guidelines workbook) is an unused asset worth scoping.** 270 rows × 12 columns of Jumia's actual valid values per attribute (`color_family`, `display_size`, `hdd_size`, `system_memory`, `warranty_type`, etc. — §8's rule engine has no `allowed_values` check type yet, and the category-attribute config in §7 has no way to constrain a field to a fixed enum). Worth a `bootstrap-options` harvester and an `allowed_values` rule check in M1/M5 — not done in this pass, flagged here so it isn't lost.
 
 ---
 
@@ -350,9 +351,9 @@ Non-negotiable design rules that keep the system trustworthy as it grows past a 
 5. **A run has an explicit terminal failure state.** The background task wraps the pipeline in try/except; an unhandled exception sets `validation_runs.status = 'failed'` with `error_message` populated, not an indefinitely-spinning progress bar (§4 Run execution model).
 6. **The export path is protected by a golden-file test.** One fixture feed + fixture template, checked into `tests/fixtures/`, with the expected output XLSX diffed cell-by-cell in CI/pre-commit. Column-order drift is the single failure mode that causes mass Jumia rejection, so it's the one thing that gets an end-to-end test rather than relying on unit tests of the pieces (§12 M1).
 
-### Scale assumptions (confirm before committing to SQLite/pandas choices)
+### Scale assumptions (confirmed 2026-07-23 against real data)
 
-Every tech choice in §5 (SQLite, `pandas` one-time load, `rapidfuzz` per unresolved item) assumes roughly: **low thousands of SKUs per feed**, **one run at a time**, **runs triggered a few times a week, not continuously**. If GizmoJunction's real catalog is an order of magnitude larger, or runs need to happen concurrently/on a tight schedule, revisit SQLite (§16) and consider caching fuzzy-match results per `raw_value` rather than rescoring identical unresolved strings every run. Confirm the real feed item count before M0 locks these assumptions in.
+Every tech choice in §5 (SQLite, `pandas` one-time load, `rapidfuzz` per unresolved item) assumes roughly: **low thousands of SKUs per feed**, **one run at a time**, **runs triggered a few times a week, not continuously**. Confirmed: the live feed has **745 items** (M0 ingest, run against the real endpoint) — comfortably within the assumption. The fuzzy-match candidate universe is **1,913 categories** and **175,460 brands** (§7, harvested from Jumia's guidelines workbook, both far from the earlier "~30k" guess) — `rapidfuzz` scoring 745 unresolved items against 1,913 category candidates per run is trivial at C-speed; scoring against 175K brand candidates is the one number worth watching if brand fuzzy-matching ever gets slow, since it's two orders of magnitude larger than the category set. If GizmoJunction's real catalog grows an order of magnitude, or runs need to happen concurrently/on a tight schedule, revisit SQLite (§16) and consider caching fuzzy-match results per `raw_value` rather than rescoring identical unresolved strings every run.
 
 ---
 

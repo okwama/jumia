@@ -96,3 +96,57 @@ def test_harvest_end_to_end(tmp_path, conn):
     assert summary.rows_scanned == 1
     assert summary.pairs_found == 2
     assert summary.pairs_new == 2
+
+
+def _make_guidelines(path: Path, brands: list[str], categories: list[str]) -> None:
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    brands_ws = wb.create_sheet("Brands")
+    brands_ws.append(["CODE - BRAND_SYSTEM_NAME"])
+    for value in brands:
+        brands_ws.append([value])
+    categories_ws = wb.create_sheet("Categories")
+    categories_ws.append(["CATEGORIES"])
+    for value in categories:
+        categories_ws.append([value])
+    wb.save(path)
+
+
+def test_harvest_from_guidelines_extracts_brands_and_categories(tmp_path):
+    path = tmp_path / "guidelines.xlsx"
+    _make_guidelines(
+        path,
+        brands=["1118344 - Ugreen", "1036890 - Epson"],
+        categories=["1000055 - Computing / Computer Accessories / Audio & Video Accessories"],
+    )
+    row_count, pairs = bootstrap.harvest_from_guidelines(str(path))
+    assert row_count == 3
+    assert ("brand", "1118344", "Ugreen") in pairs
+    assert ("brand", "1036890", "Epson") in pairs
+    assert ("category", "1000055", "Computing / Computer Accessories / Audio & Video Accessories") in pairs
+
+
+def test_harvest_guidelines_tags_source(tmp_path, conn):
+    path = tmp_path / "guidelines.xlsx"
+    _make_guidelines(path, brands=["1118344 - Ugreen"], categories=[])
+    bootstrap.harvest_guidelines(conn, str(path))
+    source = conn.execute(
+        "SELECT source FROM id_label_catalog WHERE kind = 'brand' AND jumia_id = '1118344'"
+    ).fetchone()[0]
+    assert source == "jumia_reference"
+
+
+def test_template_and_guidelines_harvests_coexist_in_catalog(tmp_path, conn):
+    template_path = tmp_path / "template.xlsx"
+    _make_template(
+        template_path,
+        [{"Name": "Widget A", "SellerSKU": "A1", "Brand": "1045133 - Generic",
+          "PrimaryCategory": "1002708 - Computing / Printer Ink"}],
+    )
+    guidelines_path = tmp_path / "guidelines.xlsx"
+    _make_guidelines(guidelines_path, brands=["1118344 - Ugreen"], categories=[])
+
+    bootstrap.harvest(conn, str(template_path))
+    bootstrap.harvest_guidelines(conn, str(guidelines_path))
+
+    assert conn.execute("SELECT COUNT(*) FROM id_label_catalog").fetchone()[0] == 3

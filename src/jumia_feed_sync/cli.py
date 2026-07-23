@@ -39,6 +39,16 @@ def cmd_bootstrap(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_bootstrap_guidelines(args: argparse.Namespace) -> None:
+    conn = _connect()
+    path = args.file or config.JUMIA_GUIDELINES_PATH
+    summary = bootstrap.harvest_guidelines(conn, path)
+    print(
+        f"Scanned {summary.rows_scanned} rows: "
+        f"{summary.pairs_found} known id/label pairs, {summary.pairs_new} new to the catalog"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="jumia-feed-sync")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -54,6 +64,12 @@ def main() -> None:
     )
     bootstrap_parser.add_argument("--file", help="Path to the filled template (defaults to UPLOAD_TEMPLATE_PATH)")
     bootstrap_parser.set_defaults(func=cmd_bootstrap)
+
+    guidelines_parser = subparsers.add_parser(
+        "bootstrap-guidelines", help="Harvest the full brand/category catalog from Jumia's guidelines workbook"
+    )
+    guidelines_parser.add_argument("--file", help="Path to the guidelines workbook (defaults to JUMIA_GUIDELINES_PATH)")
+    guidelines_parser.set_defaults(func=cmd_bootstrap_guidelines)
 
     args = parser.parse_args()
     args.func(args)
